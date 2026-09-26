@@ -2,7 +2,7 @@
 
 Poor man's serverless: a minimal **CLI + API** control plane to build and deploy **functions**, **backends** (Java / Go / Python), and a **lightweight frontend**, self-hosted on a single node.
 
-> Status: RFC accepted — Phase 0 skeleton and Phase 1 store/API are in tree. Docker workloads start in Phase 2.
+> Status: Phase 0–1 control plane plus Phase 2 Go runtime (`lf init` / `build` / `deploy` / `invoke`) on Docker.
 
 ## Docs
 
@@ -12,7 +12,7 @@ Poor man's serverless: a minimal **CLI + API** control plane to build and deploy
 
 ## Build
 
-Requires [Go 1.22+](https://go.dev/dl/) on Linux (or any `GOOS` for the control plane; Docker workloads come in later phases).
+Requires [Go 1.22+](https://go.dev/dl/) on Linux. Docker is required from Phase 2 on (build + run workloads). No Kubernetes.
 
 ```bash
 git clone https://github.com/wolvever/litefaas.git
@@ -21,24 +21,36 @@ go build -o lf ./cmd/lf
 go build -o litefaasd ./cmd/litefaasd
 ```
 
-`go build ./...` from the repo root must succeed. Override the reported version at link time if you want:
+`go build ./...` from the repo root must succeed.
+
+## End-to-end: Go function on one Docker host
 
 ```bash
-go build -ldflags "-X github.com/wolvever/litefaas/internal/version.Version=v0.1.0-alpha" -o lf ./cmd/lf
+# 1. control plane
+./litefaasd --addr 127.0.0.1:8080 --data-dir ./data
+
+# 2. scaffold + image (another shell)
+./lf init hello --runtime go
+./lf build hello
+
+# 3. register + start container, then sync invoke
+./lf deploy hello --gateway http://127.0.0.1:8080
+./lf invoke hello -d '{"hello":"litefaas"}'
+# → {"hello":"litefaas"}
 ```
+
+`lf init --runtime go` copies `templates/runtimes/go/http` (Dockerfile + handler that binds `0.0.0.0:$PORT` and serves `GET /healthz`). `lf build` runs `docker build` and tags `litefaas/<name>:latest`. `lf deploy` POSTs metadata then `POST /v1/functions/{name}/deploy`; litefaasd `docker run`s the local image (no registry). `lf invoke` is `POST /invoke/{name}` and forwards the body to the container.
 
 ## Health and version
 
 ```bash
-./litefaasd --addr 127.0.0.1:8080 --data-dir ./data
-# in another shell
 curl -s http://127.0.0.1:8080/healthz
 curl -s http://127.0.0.1:8080/version
 ./lf version
 ./lf health --gateway http://127.0.0.1:8080
 ```
 
-`GET /healthz` returns `{"status":"ok","version":"..."}`. There is no UI; the CLI (`lf`) and HTTP API are the interface.
+`GET /healthz` returns `{"status":"ok","version":"..."}`. There is no UI.
 
 ## Resource API (RFC-0001 §9 subset)
 
@@ -48,30 +60,21 @@ Base path `/v1`. State is sqlite under `--data-dir` (file `litefaas.db`; default
 |--------|------|---------|
 | GET | `/healthz` | Daemon health |
 | GET | `/version` | Build identity |
-| POST | `/v1/functions` | Register resource metadata |
+| POST | `/v1/functions` | Register or update resource metadata |
 | GET | `/v1/functions` | List |
-| GET | `/v1/functions/{name}` | Get (includes revisions) |
-| DELETE | `/v1/functions/{name}` | Delete |
-| POST | `/v1/functions/{name}/deploy` | Record a deploy revision (runner is a stub until Phase 2) |
+| GET | `/v1/functions/{name}` | Get (includes revisions + instance) |
+| DELETE | `/v1/functions/{name}` | Delete and stop container |
+| POST | `/v1/functions/{name}/deploy` | Run image via Docker |
+| POST | `/invoke/{name}` | Sync invoke (functions) |
 
 Auth: if `LITEFAAS_TOKEN` or `--token` is set, send `Authorization: Bearer <token>`. `/healthz` and `/version` stay open.
-
-```bash
-curl -s -X POST http://127.0.0.1:8080/v1/functions \
-  -H 'Content-Type: application/json' \
-  -d '{"name":"orders-api","kind":"backend","runtime":"java","image":"localhost:5000/orders-api:0.1.0"}'
-./lf list --gateway http://127.0.0.1:8080
-./lf delete orders-api --gateway http://127.0.0.1:8080
-```
 
 ## CLI context
 
 ```bash
 lf context create local --gateway http://127.0.0.1:8080
-lf context list
 lf context use local
 lf list
-lf delete orders-api
 ```
 
 Context file: `~/.litefaas/config.yaml` (override with `--config-dir`).

@@ -8,8 +8,12 @@ import (
 	"strings"
 	"text/tabwriter"
 
+	"github.com/wolvever/litefaas/internal/builder"
 	"github.com/wolvever/litefaas/internal/client"
 	"github.com/wolvever/litefaas/internal/config"
+	"github.com/wolvever/litefaas/internal/initfn"
+	"github.com/wolvever/litefaas/internal/manifest"
+	"github.com/wolvever/litefaas/internal/types"
 	"github.com/wolvever/litefaas/internal/version"
 )
 
@@ -40,6 +44,14 @@ func run(args []string) error {
 		return cmdDelete(args[1:])
 	case "context":
 		return cmdContext(args[1:])
+	case "init":
+		return cmdInit(args[1:])
+	case "build":
+		return cmdBuild(args[1:])
+	case "deploy":
+		return cmdDeploy(args[1:])
+	case "invoke":
+		return cmdInvoke(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q\n\nRun 'lf help' for usage", args[0])
 	}
@@ -49,14 +61,14 @@ func printUsage(w io.Writer) {
 	fmt.Fprint(w, `lf — litefaas CLI (RFC-0001)
 
 Usage:
-  lf version                 Print CLI version
-  lf health                  GET /healthz on the current gateway
-  lf list                    List resources
-  lf delete <name>           Delete a resource
-  lf context                 Show / list / create / use CLI contexts
-  lf help                    Show this help
+  lf init <name> --runtime go [--kind function]   Scaffold a service
+  lf build [path]                                 docker build (litefaas.yaml)
+  lf deploy [path]                                Register + start container
+  lf invoke <name> [-d payload]                   Sync invoke a function
+  lf list / lf delete <name>                      Inventory
+  lf health / lf version / lf context             Daemon + CLI config
+  lf help                                         Show this help
 
-The daemon (litefaasd) exposes GET /healthz and the /v1 resource API.
 See docs/RFC-0001-architecture.md.
 `)
 }
@@ -127,6 +139,123 @@ func resolveClient(gatewayFlag, tokenFlag, configDir string) (*client.Client, er
 		tok = tokenFlag
 	}
 	return client.New(gw, tok), nil
+}
+
+func cmdInit(args []string) error {
+	fs := flag.NewFlagSet("init", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	runtime := fs.String("runtime", "go", "go|java|python|dockerfile|static")
+	kind := fs.String("kind", "function", "function|backend|frontend")
+	preset := fs.String("preset", "", "optional preset (later phases)")
+	rest, err := parseMixed(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(rest) < 1 {
+		return fmt.Errorf("usage: lf init <name> --runtime go [--kind function]")
+	}
+	name := rest[0]
+	rt, err := types.ParseRuntime(*runtime)
+	if err != nil {
+		return err
+	}
+	k, err := types.ParseKind(*kind)
+	if err != nil {
+		return err
+	}
+	dest := name
+	if err := initfn.Init(dest, name, rt, k, *preset); err != nil {
+		return err
+	}
+	fmt.Printf("created %s (runtime=%s kind=%s)\n", dest, rt, k)
+	fmt.Printf("next: lf build %s && lf deploy %s && lf invoke %s -d '{\"hello\":\"litefaas\"}'\n", dest, dest, name)
+	return nil
+}
+
+func cmdBuild(args []string) error {
+	path := "."
+	if len(args) > 0 && !strings.HasPrefix(args[0], "-") {
+		path = args[0]
+	}
+	image, err := builder.Build(path, os.Stderr)
+	if err != nil {
+		return err
+	}
+	fmt.Printf("built %s\n", image)
+	return nil
+}
+
+func cmdDeploy(args []string) error {
+	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	gw := fs.String("gateway", "", "litefaasd URL")
+	tok := fs.String("token", "", "bearer token")
+	dir := fs.String("config-dir", "", "CLI config directory")
+	rest, err := parseMixed(fs, args)
+	if err != nil {
+		return err
+	}
+	path := "."
+	if len(rest) > 0 {
+		path = rest[0]
+	}
+	res, err := manifest.Load(path)
+	if err != nil {
+		return err
+	}
+	c, err := resolveClient(*gw, *tok, *dir)
+	if err != nil {
+		return err
+	}
+	if _, err := c.Create(res); err != nil {
+		return fmt.Errorf("register: %w", err)
+	}
+	rev, err := c.Deploy(res.Name, res.Image)
+	if err != nil {
+		return fmt.Errorf("deploy: %w", err)
+	}
+	fmt.Printf("deployed %s image=%s status=%s\n", res.Name, rev.Image, rev.Status)
+	return nil
+}
+
+func cmdInvoke(args []string) error {
+	fs := flag.NewFlagSet("invoke", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	payload := fs.String("d", "", "request body (or @file)")
+	gw := fs.String("gateway", "", "litefaasd URL")
+	tok := fs.String("token", "", "bearer token")
+	dir := fs.String("config-dir", "", "CLI config directory")
+	rest, err := parseMixed(fs, args)
+	if err != nil {
+		return err
+	}
+	if len(rest) < 1 {
+		return fmt.Errorf("usage: lf invoke <name> [-d payload]")
+	}
+	body := []byte(*payload)
+	if strings.HasPrefix(*payload, "@") {
+		body, err = os.ReadFile(strings.TrimPrefix(*payload, "@"))
+		if err != nil {
+			return err
+		}
+	}
+	c, err := resolveClient(*gw, *tok, *dir)
+	if err != nil {
+		return err
+	}
+	out, status, err := c.Invoke(rest[0], body, "application/json")
+	if err != nil {
+		return err
+	}
+	if status >= 300 {
+		return fmt.Errorf("invoke status %d: %s", status, strings.TrimSpace(string(out)))
+	}
+	if len(out) > 0 && !strings.HasSuffix(string(out), "\n") {
+		fmt.Printf("%s\n", out)
+	} else {
+		fmt.Print(string(out))
+	}
+	return nil
 }
 
 func cmdHealth(args []string) error {

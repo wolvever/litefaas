@@ -1,0 +1,31 @@
+package main
+
+import (
+	"io"
+	"log"
+	"net/http"
+	"os"
+)
+
+func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	})
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if len(body) == 0 {
+			body = []byte(`{"ok":true,"runtime":"go"}`)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write(body)
+	})
+	addr := "0.0.0.0:" + port
+	log.Printf("go function listening on %s", addr)
+	log.Fatal(http.ListenAndServe(addr, mux))
+}

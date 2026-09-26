@@ -76,7 +76,79 @@ CREATE TABLE IF NOT EXISTS revisions (
 	created_at TEXT NOT NULL,
 	FOREIGN KEY (name) REFERENCES resources(name) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS instances (
+	name TEXT PRIMARY KEY,
+	container_id TEXT,
+	endpoint TEXT,
+	image TEXT,
+	status TEXT,
+	FOREIGN KEY (name) REFERENCES resources(name) ON DELETE CASCADE
+);
 `)
+	return err
+}
+
+func (s *Store) Update(r types.Resource) (types.Resource, error) {
+	existing, err := s.Get(r.Name)
+	if err != nil {
+		return types.Resource{}, err
+	}
+	r.CreatedAt = existing.CreatedAt
+	r.UpdatedAt = time.Now().UTC().Truncate(time.Second)
+	raw, err := json.Marshal(r)
+	if err != nil {
+		return types.Resource{}, err
+	}
+	res, err := s.db.Exec(
+		`UPDATE resources SET kind = ?, runtime = ?, spec_json = ?, updated_at = ? WHERE name = ?`,
+		string(r.Kind), string(r.Runtime), string(raw), r.UpdatedAt.Format(time.RFC3339), r.Name,
+	)
+	if err != nil {
+		return types.Resource{}, err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return types.Resource{}, ErrNotFound
+	}
+	return r, nil
+}
+
+func (s *Store) Upsert(r types.Resource) (types.Resource, error) {
+	_, err := s.Get(r.Name)
+	if errors.Is(err, ErrNotFound) {
+		return s.Create(r)
+	}
+	if err != nil {
+		return types.Resource{}, err
+	}
+	return s.Update(r)
+}
+
+func (s *Store) PutInstance(inst types.Instance) error {
+	_, err := s.db.Exec(
+		`INSERT INTO instances (name, container_id, endpoint, image, status) VALUES (?, ?, ?, ?, ?)
+		 ON CONFLICT(name) DO UPDATE SET container_id=excluded.container_id, endpoint=excluded.endpoint, image=excluded.image, status=excluded.status`,
+		inst.Name, inst.ContainerID, inst.Endpoint, inst.Image, inst.Status,
+	)
+	return err
+}
+
+func (s *Store) GetInstance(name string) (types.Instance, error) {
+	var inst types.Instance
+	err := s.db.QueryRow(
+		`SELECT name, container_id, endpoint, image, status FROM instances WHERE name = ?`, name,
+	).Scan(&inst.Name, &inst.ContainerID, &inst.Endpoint, &inst.Image, &inst.Status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return types.Instance{}, ErrNotFound
+	}
+	if err != nil {
+		return types.Instance{}, err
+	}
+	return inst, nil
+}
+
+func (s *Store) DeleteInstance(name string) error {
+	_, err := s.db.Exec(`DELETE FROM instances WHERE name = ?`, name)
 	return err
 }
 

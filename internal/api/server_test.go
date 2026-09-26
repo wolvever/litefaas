@@ -107,6 +107,33 @@ func TestResourceCRUDAndAuth(t *testing.T) {
 		t.Fatalf("get status = %d", rec.Code)
 	}
 
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"pong":true}`))
+	}))
+	t.Cleanup(backend.Close)
+	fn := []byte(`{"name":"hello","kind":"function","runtime":"go","image":"litefaas/hello:latest"}`)
+	req = httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(fn))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create fn status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := st.PutInstance(types.Instance{Name: "hello", Endpoint: backend.URL, Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/invoke/hello", bytes.NewReader([]byte(`{"ping":1}`)))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("pong")) {
+		t.Fatalf("invoke body = %s", rec.Body.String())
+	}
+
 	req = httptest.NewRequest(http.MethodDelete, "/v1/functions/web", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	rec = httptest.NewRecorder()

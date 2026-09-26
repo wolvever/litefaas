@@ -1,0 +1,3 @@
+language: go
+kind: function
+handler: handler.go
