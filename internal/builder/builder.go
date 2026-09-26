@@ -49,8 +49,12 @@ func materialize(root string, m *manifest.Manifest) error {
 	if _, err := os.Stat(df); err == nil {
 		return nil
 	}
-	if m.Runtime != string(types.RuntimeGo) {
+	rt, err := types.ParseRuntime(m.Runtime)
+	if err != nil {
 		return fmt.Errorf("no Dockerfile in %s and runtime %s has no built-in template", root, m.Runtime)
 	}
-	return scaffold.WriteGoDockerfile(root)
+	if err := scaffold.WriteDockerfile(root, rt); err != nil {
+		return fmt.Errorf("no Dockerfile in %s and runtime %s has no built-in template: %w", root, m.Runtime, err)
+	}
+	return nil
 }

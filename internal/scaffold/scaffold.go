@@ -20,16 +20,41 @@ type Options struct {
 	Name    string
 	Runtime types.Runtime
 	Kind    types.Kind
+	Preset  string
 	Dir     string // parent directory; created project is Dir/Name
 	Force   bool
+}
+
+func templateRoot(rt types.Runtime, preset string) (fs.FS, string, error) {
+	if preset != "" {
+		switch string(rt) + "/" + preset {
+		case "java/spring-boot":
+			return templates.Presets, "presets/java/spring-boot", nil
+		case "python/fastapi":
+			return templates.Presets, "presets/python/fastapi", nil
+		default:
+			return nil, "", fmt.Errorf("unknown preset %q for runtime %s (Phase 3 ships spring-boot and fastapi)", preset, rt)
+		}
+	}
+	switch rt {
+	case types.RuntimeGo:
+		return templates.Runtimes, goHTTP, nil
+	case types.RuntimeJava:
+		return templates.Runtimes, "runtimes/java/http", nil
+	case types.RuntimePython:
+		return templates.Runtimes, "runtimes/python/http", nil
+	default:
+		return nil, "", fmt.Errorf("runtime %q is not available yet (dockerfile/static come in later phases)", rt)
+	}
 }
 
 func Init(opts Options) (string, error) {
 	if opts.Name == "" {
 		return "", fmt.Errorf("name is required")
 	}
-	if opts.Runtime != types.RuntimeGo {
-		return "", fmt.Errorf("runtime %q is not available yet (Phase 2 implements go; java/python come in later phases)", opts.Runtime)
+	srcFS, src, err := templateRoot(opts.Runtime, opts.Preset)
+	if err != nil {
+		return "", err
 	}
 	kind := opts.Kind
 	if kind == "" {
@@ -50,11 +75,11 @@ func Init(opts Options) (string, error) {
 		"{{name}}", opts.Name,
 		"{{kind}}", string(kind),
 	)
-	err := fs.WalkDir(templates.Runtimes, goHTTP, func(p string, d fs.DirEntry, err error) error {
+	err = fs.WalkDir(srcFS, src, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
-		rel, err := filepath.Rel(filepath.FromSlash(goHTTP), filepath.FromSlash(p))
+		rel, err := filepath.Rel(filepath.FromSlash(src), filepath.FromSlash(p))
 		if err != nil {
 			return err
 		}
@@ -72,7 +97,7 @@ func Init(opts Options) (string, error) {
 		if d.IsDir() {
 			return os.MkdirAll(out, 0o755)
 		}
-		raw, err := templates.Runtimes.ReadFile(p)
+		raw, err := fs.ReadFile(srcFS, p)
 		if err != nil {
 			return err
 		}
@@ -109,12 +134,20 @@ func prepareDir(dest string, force bool) error {
 	return nil
 }
 
-// WriteGoDockerfile copies the Go HTTP Dockerfile into dir if missing.
-func WriteGoDockerfile(dir string) error {
-	const src = goHTTP + "/Dockerfile"
-	raw, err := templates.Runtimes.ReadFile(src)
+// WriteDockerfile copies the generic Dockerfile for runtime into dir if present.
+func WriteDockerfile(dir string, runtime types.Runtime) error {
+	srcFS, src, err := templateRoot(runtime, "")
+	if err != nil {
+		return err
+	}
+	raw, err := fs.ReadFile(srcFS, path.Join(src, "Dockerfile"))
 	if err != nil {
 		return err
 	}
 	return os.WriteFile(filepath.Join(dir, "Dockerfile"), raw, 0o644)
+}
+
+// WriteGoDockerfile copies the Go HTTP Dockerfile into dir if missing.
+func WriteGoDockerfile(dir string) error {
+	return WriteDockerfile(dir, types.RuntimeGo)
 }

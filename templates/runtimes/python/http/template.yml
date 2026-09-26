@@ -1,0 +1,5 @@
+name: python-http
+runtime: python
+kind: function
+language: python
+description: Generic Python HTTP function (stdlib http.server, binds 0.0.0.0:$PORT)

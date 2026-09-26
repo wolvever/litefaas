@@ -1,0 +1,6 @@
+name: fastapi
+runtime: python
+preset: fastapi
+kind: function
+language: python
+description: FastAPI HTTP preset (binds 0.0.0.0:$PORT)
