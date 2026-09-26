@@ -1,0 +1,11 @@
+name: __NAME__
+kind: function
+runtime: go
+handler: .
+image: __NAME__:latest
+port: 8080
+timeout: 60s
+health: /healthz
+triggers:
+  - type: http
+    path: /fn/__NAME__

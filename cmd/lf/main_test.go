@@ -3,9 +3,30 @@ package main
 import (
 	"flag"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
+
+func TestInitScaffoldsGoFunction(t *testing.T) {
+	dest := t.TempDir()
+	if err := run([]string{"init", "hello", "--runtime", "go", "--dir", dest}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "litefaas.yaml")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "Dockerfile")); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestInitRequiresRuntime(t *testing.T) {
+	if err := run([]string{"init", "hello"}); err == nil {
+		t.Fatal("expected usage error")
+	}
+}
 
 func TestParseMixedFlagsAfterName(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)

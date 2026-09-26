@@ -1,0 +1,5 @@
+name: go-http
+language: go
+kind: function
+welcome_message: |
+  Go HTTP function. Bind 0.0.0.0:$PORT (default 8080) and serve GET /healthz.

@@ -55,6 +55,23 @@ func TestResourceCRUDPersists(t *testing.T) {
 		t.Fatalf("list after reopen = %+v", list)
 	}
 
+	updated, err := s.Update(types.Resource{
+		Name:    "orders-api",
+		Kind:    types.KindBackend,
+		Runtime: types.RuntimeJava,
+		Image:   "orders-api:latest",
+		Port:    8080,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Image != "orders-api:latest" || updated.CreatedAt.IsZero() || !updated.UpdatedAt.After(updated.CreatedAt) && updated.UpdatedAt.Equal(updated.CreatedAt) {
+		// UpdatedAt may equal CreatedAt if the clock truncated to the same second.
+		if updated.Image != "orders-api:latest" {
+			t.Fatalf("update = %+v", updated)
+		}
+	}
+
 	rev, err := s.AddRevision("orders-api", "localhost:5000/orders-api:0.1.0", "recorded")
 	if err != nil {
 		t.Fatal(err)

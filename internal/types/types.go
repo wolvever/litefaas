@@ -3,8 +3,16 @@ package types
 
 import (
 	"fmt"
+	"regexp"
 	"time"
 )
+
+// NameRE is the RFC-oriented resource name (also used as a directory / image name).
+var NameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+
+func ValidName(s string) bool {
+	return NameRE.MatchString(s)
+}
 
 // Kind is a litefaas.yaml kind.
 type Kind string
@@ -48,16 +56,23 @@ func ParseRuntime(s string) (Runtime, error) {
 
 // Trigger is an HTTP path binding from a manifest.
 type Trigger struct {
-	Type        string `json:"type,omitempty"`
-	Path        string `json:"path,omitempty"`
-	StripPrefix bool   `json:"strip_prefix,omitempty"`
-	SPA         bool   `json:"spa,omitempty"`
+	Type        string `json:"type,omitempty" yaml:"type,omitempty"`
+	Path        string `json:"path,omitempty" yaml:"path,omitempty"`
+	StripPrefix bool   `json:"strip_prefix,omitempty" yaml:"strip_prefix,omitempty"`
+	SPA         bool   `json:"spa,omitempty" yaml:"spa,omitempty"`
 }
 
 // Build is an optional pre-image build step.
 type Build struct {
-	Command []string `json:"command,omitempty"`
-	Output  string   `json:"output,omitempty"`
+	Command []string `json:"command,omitempty" yaml:"command,omitempty"`
+	Output  string   `json:"output,omitempty" yaml:"output,omitempty"`
+}
+
+const ManifestFile = "litefaas.yaml"
+
+// DefaultImage is a local Docker tag (no registry) for single-node Phase 2.
+func DefaultImage(name string) string {
+	return name + ":latest"
 }
 
 // Resource is control-plane metadata for a function, backend, or frontend.

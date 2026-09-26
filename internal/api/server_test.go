@@ -3,10 +3,12 @@ package api
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/wolvever/litefaas/internal/runner"
 	"github.com/wolvever/litefaas/internal/store"
 	"github.com/wolvever/litefaas/internal/types"
 	"github.com/wolvever/litefaas/internal/version"
@@ -107,11 +109,88 @@ func TestResourceCRUDAndAuth(t *testing.T) {
 		t.Fatalf("get status = %d", rec.Code)
 	}
 
+	req = httptest.NewRequest(http.MethodPut, "/v1/functions/web", bytes.NewReader([]byte(`{"name":"web","kind":"frontend","runtime":"static","handler":"./web/out"}`)))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("update status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
 	req = httptest.NewRequest(http.MethodDelete, "/v1/functions/web", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d", rec.Code)
+	}
+}
+
+func TestDeployAndInvokeWithRunner(t *testing.T) {
+	fn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/healthz" {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write([]byte("ok\n"))
+			return
+		}
+		body, _ := io.ReadAll(r.Body)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"echo":"` + string(body) + `"}`))
+	}))
+	t.Cleanup(fn.Close)
+
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	fake := runner.NewFake()
+	fake.SetEndpoint("echo", fn.URL)
+	srv := New(Options{Store: st, Runner: fake})
+
+	body := []byte(`{"name":"echo","kind":"function","runtime":"go","image":"echo:latest"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/functions/echo/deploy", bytes.NewReader([]byte(`{"image":"echo:latest"}`)))
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("deploy status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var dep deployResponse
+	if err := json.NewDecoder(rec.Body).Decode(&dep); err != nil {
+		t.Fatal(err)
+	}
+	if dep.Status != "running" || dep.Endpoint != fn.URL {
+		t.Fatalf("deploy = %+v", dep)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/invoke/echo", bytes.NewReader([]byte("ping")))
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if rec.Body.String() != `{"echo":"ping"}` {
+		t.Fatalf("invoke body = %s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader([]byte(`{"name":"api","kind":"backend","runtime":"go","image":"api:latest"}`)))
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("backend create = %d", rec.Code)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/v1/invoke/api", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("backend invoke status = %d", rec.Code)
 	}
 }
