@@ -1,0 +1,5 @@
+name: go-http
+runtime: go
+kind: function
+language: go
+description: Generic Go net/http function (binds 0.0.0.0:$PORT)

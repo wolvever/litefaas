@@ -2,6 +2,7 @@
 package api
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -9,7 +10,10 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
+	"github.com/wolvever/litefaas/internal/manifest"
+	"github.com/wolvever/litefaas/internal/runner"
 	"github.com/wolvever/litefaas/internal/store"
 	"github.com/wolvever/litefaas/internal/types"
 	"github.com/wolvever/litefaas/internal/version"
@@ -19,18 +23,20 @@ var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // Server is the control-plane HTTP handler.
 type Server struct {
-	mux   *http.ServeMux
-	store *store.Store
-	token string
+	mux    *http.ServeMux
+	store  *store.Store
+	token  string
+	runner runner.Runner
 }
 
 type Options struct {
-	Store *store.Store
-	Token string
+	Store  *store.Store
+	Token  string
+	Runner runner.Runner
 }
 
 func New(opts Options) *Server {
-	s := &Server{mux: http.NewServeMux(), store: opts.Store, token: opts.Token}
+	s := &Server{mux: http.NewServeMux(), store: opts.Store, token: opts.Token, runner: opts.Runner}
 	s.routes()
 	return s
 }
@@ -41,8 +47,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/functions", s.auth(s.handleCreate))
 	s.mux.HandleFunc("GET /v1/functions", s.auth(s.handleList))
 	s.mux.HandleFunc("GET /v1/functions/{name}", s.auth(s.handleGet))
+	s.mux.HandleFunc("PUT /v1/functions/{name}", s.auth(s.handleUpdate))
 	s.mux.HandleFunc("DELETE /v1/functions/{name}", s.auth(s.handleDelete))
 	s.mux.HandleFunc("POST /v1/functions/{name}/deploy", s.auth(s.handleDeploy))
+	s.mux.HandleFunc("POST /v1/invoke/{name}", s.auth(s.handleInvoke))
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -154,12 +162,49 @@ func (s *Server) handleGet(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, types.ResourceView{Resource: res, Revisions: revs})
 }
 
+func (s *Server) handleUpdate(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "store not configured"})
+		return
+	}
+	name := r.PathValue("name")
+	var in types.Resource
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid json: " + err.Error()})
+		return
+	}
+	if in.Name == "" {
+		in.Name = name
+	}
+	if in.Name != name {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "name in body must match path"})
+		return
+	}
+	if err := validateResource(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
+		return
+	}
+	out, err := s.store.Update(in)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, errorBody{Error: "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
+}
+
 func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
 		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "store not configured"})
 		return
 	}
 	name := r.PathValue("name")
+	if s.runner != nil {
+		_ = s.runner.Remove(r.Context(), name)
+	}
 	err := s.store.Delete(name)
 	if errors.Is(err, store.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, errorBody{Error: "not found"})
@@ -176,9 +221,19 @@ type deployRequest struct {
 	Image string `json:"image"`
 }
 
+type deployResponse struct {
+	types.Revision
+	Endpoint  string `json:"endpoint,omitempty"`
+	Container string `json:"container,omitempty"`
+}
+
 func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	if s.store == nil {
 		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "store not configured"})
+		return
+	}
+	if s.runner == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "runner not configured"})
 		return
 	}
 	name := r.PathValue("name")
@@ -195,21 +250,91 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	if r.Body != nil {
 		_ = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&req)
 	}
-	image := req.Image
-	if image == "" {
-		image = res.Image
+	if req.Image != "" {
+		res.Image = req.Image
 	}
-	if image == "" {
+	if res.Image == "" {
 		writeJSON(w, http.StatusBadRequest, errorBody{Error: "image is required"})
 		return
 	}
-	// Stub runner: record the revision only. Docker starts in Phase 2.
-	rev, err := s.store.AddRevision(name, image, "recorded")
+	if _, err := s.store.Update(res); err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+		return
+	}
+	out, err := s.runner.Deploy(r.Context(), res)
+	if err != nil {
+		_, _ = s.store.AddRevision(name, res.Image, "failed")
+		writeJSON(w, http.StatusBadGateway, errorBody{Error: "deploy: " + err.Error()})
+		return
+	}
+	rev, err := s.store.AddRevision(name, res.Image, "deployed")
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusAccepted, rev)
+	writeJSON(w, http.StatusAccepted, deployResponse{Revision: rev, Endpoint: out.Endpoint, Container: out.Container})
+}
+
+func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "store not configured"})
+		return
+	}
+	if s.runner == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "runner not configured"})
+		return
+	}
+	name := r.PathValue("name")
+	res, err := s.store.Get(name)
+	if errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, errorBody{Error: "not found"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+		return
+	}
+	if res.Kind != types.KindFunction {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invoke is only supported for kind=function"})
+		return
+	}
+	ep, err := s.runner.Endpoint(r.Context(), name)
+	if errors.Is(err, runner.ErrNotDeployed) {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "function is not deployed"})
+		return
+	}
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, errorBody{Error: err.Error()})
+		return
+	}
+	timeout, err := manifest.ParseTimeout(res.Timeout)
+	if err != nil {
+		timeout = 30 * time.Second
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), timeout)
+	defer cancel()
+	target := strings.TrimRight(ep, "/") + "/"
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, target, io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+		return
+	}
+	if ct := r.Header.Get("Content-Type"); ct != "" {
+		req.Header.Set("Content-Type", ct)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		writeJSON(w, http.StatusGatewayTimeout, errorBody{Error: "invoke: " + err.Error()})
+		return
+	}
+	defer resp.Body.Close()
+	for _, h := range []string{"Content-Type", "Content-Length"} {
+		if v := resp.Header.Get(h); v != "" {
+			w.Header().Set(h, v)
+		}
+	}
+	w.WriteHeader(resp.StatusCode)
+	_, _ = io.Copy(w, io.LimitReader(resp.Body, 1<<20))
 }
 
 func validateResource(r *types.Resource) error {

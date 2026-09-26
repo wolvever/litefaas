@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
+	"github.com/wolvever/litefaas/internal/runner"
 	"github.com/wolvever/litefaas/internal/store"
 	"github.com/wolvever/litefaas/internal/types"
 	"github.com/wolvever/litefaas/internal/version"
@@ -58,7 +59,8 @@ func TestResourceCRUDAndAuth(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 
-	srv := New(Options{Store: st, Token: "secret"})
+	fake := runner.NewFake()
+	srv := New(Options{Store: st, Token: "secret", Runner: fake})
 
 	body := []byte(`{"name":"web","kind":"frontend","runtime":"static","handler":"./web/dist"}`)
 	req := httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(body))
@@ -98,6 +100,9 @@ func TestResourceCRUDAndAuth(t *testing.T) {
 	if rec.Code != http.StatusAccepted {
 		t.Fatalf("deploy status = %d body=%s", rec.Code, rec.Body.String())
 	}
+	if len(fake.Deploys) != 1 || fake.Deploys[0].Image != "localhost:5000/web:0.1.0" {
+		t.Fatalf("deploys = %+v", fake.Deploys)
+	}
 
 	req = httptest.NewRequest(http.MethodGet, "/v1/functions/web", nil)
 	req.Header.Set("Authorization", "Bearer secret")
@@ -113,5 +118,55 @@ func TestResourceCRUDAndAuth(t *testing.T) {
 	srv.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d", rec.Code)
+	}
+	if len(fake.Removed) != 1 || fake.Removed[0] != "web" {
+		t.Fatalf("removed = %v", fake.Removed)
+	}
+}
+
+func TestInvokeFunction(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	fn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/" {
+			t.Fatalf("function got %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"message":"hello from litefaas","function":"hello"}`))
+	}))
+	t.Cleanup(fn.Close)
+
+	fake := runner.NewFake()
+	fake.Endpoints["hello"] = fn.URL
+	srv := New(Options{Store: st, Runner: fake})
+
+	body := []byte(`{"name":"hello","kind":"function","runtime":"go","image":"hello:latest","timeout":"5s"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/invoke/hello", bytes.NewReader([]byte(`{"name":"litefaas"}`)))
+	req.Header.Set("Content-Type", "application/json")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("invoke status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`hello from litefaas`)) {
+		t.Fatalf("body = %s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/invoke/missing", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("missing invoke status = %d", rec.Code)
 	}
 }

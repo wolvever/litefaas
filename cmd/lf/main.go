@@ -34,6 +34,14 @@ func run(args []string) error {
 		return nil
 	case "health":
 		return cmdHealth(args[1:])
+	case "init":
+		return cmdInit(args[1:])
+	case "build":
+		return cmdBuild(args[1:])
+	case "deploy":
+		return cmdDeploy(args[1:])
+	case "invoke":
+		return cmdInvoke(args[1:])
 	case "list":
 		return cmdList(args[1:])
 	case "delete":
@@ -51,8 +59,12 @@ func printUsage(w io.Writer) {
 Usage:
   lf version                 Print CLI version
   lf health                  GET /healthz on the current gateway
+  lf init <name> --runtime go [--kind function]   Scaffold a function
+  lf build [path]            docker build the litefaas.yaml image
+  lf deploy [path]           Register + deploy the container via the API
+  lf invoke <name> [-d BODY] POST /v1/invoke/{name}
   lf list                    List resources
-  lf delete <name>           Delete a resource
+  lf delete <name>           Delete a resource (and its container)
   lf context                 Show / list / create / use CLI contexts
   lf help                    Show this help
 

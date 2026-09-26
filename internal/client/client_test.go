@@ -1,0 +1,65 @@
+package client
+
+import (
+	"net/http/httptest"
+	"testing"
+
+	"github.com/wolvever/litefaas/internal/api"
+	"github.com/wolvever/litefaas/internal/runner"
+	"github.com/wolvever/litefaas/internal/store"
+	"github.com/wolvever/litefaas/internal/types"
+)
+
+func TestClientCRUDDeploy(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	fake := runner.NewFake()
+	hs := httptest.NewServer(api.New(api.Options{Store: st, Token: "s", Runner: fake}))
+	t.Cleanup(hs.Close)
+
+	c := New(hs.URL, "s")
+	res, err := c.Create(types.Resource{Name: "hello", Kind: types.KindFunction, Runtime: types.RuntimeGo, Image: "hello:latest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Name != "hello" {
+		t.Fatalf("create = %+v", res)
+	}
+	if _, err := c.Create(res); !IsConflict(err) {
+		t.Fatalf("dup = %v", err)
+	}
+	res.Memory = 64
+	if _, err := c.Update(res); err != nil {
+		t.Fatal(err)
+	}
+	rev, err := c.Deploy("hello", "hello:latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if rev.Status != "deployed" {
+		t.Fatalf("rev = %+v", rev)
+	}
+	list, err := c.List()
+	if err != nil || len(list) != 1 {
+		t.Fatalf("list = %v %v", list, err)
+	}
+	if err := c.Delete("hello"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestIsConflict(t *testing.T) {
+	if !IsConflict(errString("POST /v1/functions: {\"error\":\"resource already exists\"}\n")) {
+		t.Fatal("expected conflict")
+	}
+	if IsConflict(nil) {
+		t.Fatal("nil")
+	}
+}
+
+type errString string
+
+func (e errString) Error() string { return string(e) }
