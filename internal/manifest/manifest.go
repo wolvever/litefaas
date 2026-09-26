@@ -20,6 +20,7 @@ type Manifest struct {
 	Kind     string            `yaml:"kind"`
 	Runtime  string            `yaml:"runtime"`
 	Preset   string            `yaml:"preset,omitempty"`
+	Stack    string            `yaml:"stack,omitempty"` // Phase 7 pack id (optional override)
 	Handler  string            `yaml:"handler,omitempty"`
 	Image    string            `yaml:"image,omitempty"`
 	Port     int               `yaml:"port,omitempty"`

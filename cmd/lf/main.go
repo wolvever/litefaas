@@ -69,8 +69,8 @@ Usage:
   lf version                 Print CLI version
   lf health                  GET /healthz on the current gateway
   lf init <name> --runtime go|java|python|dockerfile|static [--preset ...] [--kind function|backend|frontend]
-  lf build [path]            docker build the litefaas.yaml image
-  lf deploy [path]           Register + deploy the container via the API
+  lf build [path] [--stack ID]  docker build (detects a stack pack if no litefaas.yaml)
+  lf deploy [path] [--stack ID] Register + deploy the container via the API
   lf invoke <name> [-d BODY] POST /v1/invoke/{name}
   lf list                    List resources
   lf delete <name>           Delete a resource (and its container)

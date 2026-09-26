@@ -96,13 +96,14 @@ The platform does not import application frameworks. Framework choice only affec
 
 ## 7. Manifest
 
-File name: `litefaas.yaml` (per service) or `stack.yaml` (multi-service). v0.1 implements per-directory `litefaas.yaml`.
+File name: `litefaas.yaml` (per service) or `stack.yaml` (multi-service). v0.1 implements per-directory `litefaas.yaml`. Phase 7 makes the per-service file **optional**: `lf build` / `lf deploy` on a directory with no manifest fingerprint the tree, pick a stack pack, and synthesize name/kind/runtime/image.
 
 ```yaml
 name: orders-api
 kind: backend                 # function | backend | frontend
 runtime: java                 # go | java | python | dockerfile | static
 preset: spring-boot           # optional
+stack: java-spring-mybatis    # optional Phase 7 pack id; --stack wins over this
 handler: ./orders-api         # source or static output dir
 image: localhost:5000/orders-api:0.1.0
 port: 8080
@@ -154,9 +155,13 @@ templates/
     static/
   meta/
     dockerfile/
+  stacks/                     # Phase 7 fingerprint packs (data, not Go)
+    java-spring-mybatis/
+    python-fastapi/
+    go-gin-gorm/
 ```
 
-Each template provides: `template.yml`, `Dockerfile` (and optionally build stage), and a minimal handler stub.
+Each runtime/preset template provides: `template.yml`, `Dockerfile` (and optionally build stage), and a minimal handler stub. Each stack pack provides `stack.yml` (fingerprints + defaults + sidecar/env hints) and a best-practice `Dockerfile`.
 
 **Framework coverage strategy**
 
@@ -164,6 +169,22 @@ Each template provides: `template.yml`, `Dockerfile` (and optionally build stage
 - Ship 1–2 presets per language in v0.1.
 - `runtime: dockerfile` for everything else (Django, Micronaut, Next SSR, …).
 - Community presets later as separate git pulls (OpenFaaS-style), not core bloat.
+
+### 8.1 Stack packs (Phase 7)
+
+A **stack** is language + web framework + ORM/SQL (+ optional KV/Redis hints). Packs are YAML + Dockerfile under `templates/stacks/` (embedded in `lf`, overridable via `LITEFAAS_STACKS_DIR`). `litefaasd` does not import packs or frameworks.
+
+Detection is a small AND/OR fingerprint matcher (`files` must exist; `contains.any` is a substring check). No rules engine in the daemon.
+
+Precedence for `lf build` / `lf deploy`:
+
+1. `--stack <id>`
+2. `stack:` in `litefaas.yaml` (one-liner is enough)
+3. Explicit `runtime` / `preset` / existing `Dockerfile` in `litefaas.yaml`
+4. Fingerprint detection
+5. Error (suggest `--stack` or a manifest)
+
+Existing `stack.yaml` (multi-service) stays explicit. Sidecar/env hints are documented soft defaults — the platform does not start Postgres or Redis.
 
 ## 9. API (v0.1 sketch)
 
@@ -188,8 +209,8 @@ CLI maps 1:1. Auth for v0.1: shared bearer token in env (`LITEFAAS_TOKEN`).
 
 ```text
 lf init <name> --runtime go|java|python|dockerfile|static [--preset ...] [--kind ...]
-lf build [path]
-lf deploy [path] [--gateway http://127.0.0.1:8080]
+lf build [path] [--stack ID]
+lf deploy [path] [--stack ID] [--gateway http://127.0.0.1:8080]
 lf invoke <name> [-d payload]
 lf logs <name>
 lf list
@@ -199,8 +220,8 @@ lf up                  # start local litefaasd if needed (optional)
 
 ## 11. Build & deploy flow
 
-1. Read `litefaas.yaml`.
-2. Materialize build context from runtime/preset or user Dockerfile.
+1. Read `litefaas.yaml` / `stack.yaml`, or detect a stack pack (Phase 7).
+2. Materialize build context from stack-pack Dockerfile, runtime/preset, or user Dockerfile.
 3. Optional `build.command` (e.g. `npm ci && npm run build`) in a build container.
 4. `docker build` → tag `image`.
 5. Push to configured registry **or** `docker load` on single-node local mode.
@@ -267,6 +288,12 @@ Edge routing example:
 ### Phase 6 — Hardening
 - Tokens, basic metrics, log streaming, timeouts/memory enforcement
 - `stack.yaml` multi-service (optional)
+
+### Phase 7 — Zero-config stack detection (post-v0.1)
+- Data-only stack packs: fingerprints + Dockerfile recipes
+- First-party: `java-spring-mybatis`, `python-fastapi`, `go-gin-gorm`
+- `lf build` / `lf deploy` work with little or no `litefaas.yaml`; `--stack` / `stack:` override
+- Control plane stays HTTP `$PORT` + Docker; adding a pack does not grow `litefaasd`
 
 ## 16. Success criteria (v0.1 exit)
 

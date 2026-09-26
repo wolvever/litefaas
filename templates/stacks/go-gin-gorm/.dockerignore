@@ -1,0 +1,4 @@
+.git
+litefaas.yaml
+*.test
+/data

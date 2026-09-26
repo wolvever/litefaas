@@ -2,14 +2,15 @@
 
 Poor man's serverless: a minimal **CLI + API** control plane to build and deploy **functions**, **backends** (Java / Go / Python), and a **lightweight frontend**, self-hosted on a single node.
 
-> Status: RFC accepted — Phases 0–6 are in tree. Functions, always-on backends (including `runtime: dockerfile`), a static frontend, a persisted path route table, bearer tokens, log streaming, and optional `stack.yaml` run on one Docker host.
+> Status: RFC accepted — Phases 0–7 are in tree. Functions, always-on backends (including `runtime: dockerfile`), a static frontend, a persisted path route table, bearer tokens, log streaming, optional `stack.yaml`, and zero-config stack-pack detection run on one Docker host.
 
 ## Docs
 
-- **[RFC-0001: Architecture](docs/RFC-0001-architecture.md)** — design, manifests (`litefaas.yaml` / `stack.yaml`), API, phases
+- **[RFC-0001: Architecture](docs/RFC-0001-architecture.md)** — design, manifests (`litefaas.yaml` / `stack.yaml`), stack packs, API, phases
 - Kinds: `function` | `backend` | `frontend`
 - Runtimes: `go` | `java` | `python` | `dockerfile` | `static`
 - Presets: `spring-boot` (Java), `fastapi` (Python)
+- Stack packs (Phase 7): `java-spring-mybatis`, `python-fastapi`, `go-gin-gorm`
 
 ## Build
 
@@ -221,7 +222,34 @@ services:
         strip_prefix: true
 ```
 
-`services` may also be a list of objects with `name:`. See `examples/stack.yaml`. This is **not** Phase 7 zero-config stack detection.
+`services` may also be a list of objects with `name:`. See `examples/stack.yaml`. This is **not** Phase 7 fingerprint detection (that lives in `templates/stacks/`).
+
+## Zero-config stack detection (Phase 7)
+
+`litefaas.yaml` is optional. On a typical Spring+MyBatis, FastAPI, or Gin+GORM app, `lf build` / `lf deploy` fingerprint the directory, pick a **stack pack** (YAML + Dockerfile under `templates/stacks/`), and build. The daemon still only knows HTTP `$PORT` and Docker — packs are data, not framework imports.
+
+```bash
+# no litefaas.yaml in these dirs
+./lf build examples/stacks/shop        # java-spring-mybatis
+./lf build examples/stacks/catalog     # python-fastapi
+./lf build examples/stacks/inventory   # go-gin-gorm
+./lf deploy examples/stacks/catalog --gateway http://127.0.0.1:8080
+```
+
+**Override** when detection is wrong (flag wins, then one-line yaml, then fingerprints):
+
+```bash
+./lf build . --stack python-fastapi
+```
+
+```yaml
+# litefaas.yaml — enough to pin the pack; name defaults to the directory
+stack: go-gin-gorm
+```
+
+Explicit `runtime` / `preset` / `dockerfile` in a full `litefaas.yaml` still wins over fingerprints. Add a community pack by dropping a directory next to the first-party ones, or set `LITEFAAS_STACKS_DIR` (same `stack.yml` shape; same id replaces the embedded pack).
+
+Postgres/Redis lines in `stack.yml` are **hints** (printed on detect). litefaas does not start databases.
 
 ## Health and version
 
@@ -293,11 +321,11 @@ Docker-required smoke (same as the demo above): `litefaasd` running, then `lf in
 
 ## Manifest (`litefaas.yaml`)
 
-Parsed fields for a Go function (RFC-0001 §7): `name`, `kind`, `runtime`, `handler`, `image`, `port`, `memory` (MiB, 16–8192), `timeout` (max 5m), `health`, `env`. Multi-service: `stack.yaml` (see above).
+Parsed fields for a Go function (RFC-0001 §7): `name`, `kind`, `runtime`, `preset`, `stack` (Phase 7 pack id), `handler`, `image`, `port`, `memory` (MiB, 16–8192), `timeout` (max 5m), `health`, `env`. Multi-service: `stack.yaml` (see above). Zero-config: omit the file and let a stack pack detect (see [Phase 7](#zero-config-stack-detection-phase-7)).
 
 ## Goals (v0.1)
 
-See GitHub milestone [v0.1.0-alpha](https://github.com/wolvever/litefaas/milestone/1). Phases 0–6 (v0.1.0-alpha) are in tree. Phase 7 zero-config stack detection is post-v0.1.
+See GitHub milestone [v0.1.0-alpha](https://github.com/wolvever/litefaas/milestone/1). Phases 0–6 (v0.1.0-alpha) are in tree. Phase 7 stack-pack detection is in tree (post-v0.1).
 
 ## Inspiration
 
