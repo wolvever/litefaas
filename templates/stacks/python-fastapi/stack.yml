@@ -1,0 +1,29 @@
+id: python-fastapi
+title: FastAPI
+language: python
+runtime: python
+kind: backend
+memory: 128
+priority: 70
+description: FastAPI + uvicorn. Entry point UVICORN_APP (default main:app). Bind 0.0.0.0:$PORT.
+
+match:
+  - files: [requirements.txt]
+    contains:
+      - file: requirements.txt
+        any: [fastapi]
+  - files: [pyproject.toml]
+    contains:
+      - file: pyproject.toml
+        any: [fastapi]
+  - files: [Pipfile]
+    contains:
+      - file: Pipfile
+        any: [fastapi]
+
+hints:
+  sidecars: [postgres, redis]
+  env:
+    DATABASE_URL: postgres://app:app@localhost:5432/app
+    REDIS_URL: redis://localhost:6379/0
+    UVICORN_APP: main:app

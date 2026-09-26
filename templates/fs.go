@@ -1,4 +1,4 @@
-// Package templates embeds runtime, preset, frontend, and meta scaffolds (RFC-0001 §8).
+// Package templates embeds runtime, preset, frontend, meta, and stack-pack scaffolds (RFC-0001 §8).
 package templates
 
 import "embed"
@@ -22,3 +22,9 @@ var Frontend embed.FS
 //
 //go:embed all:meta
 var Meta embed.FS
+
+// Stacks holds fingerprint packs under templates/stacks/ (Phase 7).
+// Data only — litefaasd does not import this package.
+//
+//go:embed all:stacks
+var Stacks embed.FS

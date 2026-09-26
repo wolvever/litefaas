@@ -1,0 +1,23 @@
+id: java-spring-mybatis
+title: Spring Boot + MyBatis
+language: java
+runtime: java
+kind: backend
+memory: 512
+priority: 80
+description: Spring Boot HTTP API with MyBatis (Maven). Bind 0.0.0.0:$PORT.
+
+match:
+  - files: [pom.xml]
+    contains:
+      - file: pom.xml
+        any: [spring-boot, org.springframework.boot]
+      - file: pom.xml
+        any: [mybatis]
+
+hints:
+  sidecars: [postgres]
+  env:
+    SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/app
+    SPRING_DATASOURCE_USERNAME: app
+    SPRING_DATASOURCE_PASSWORD: app

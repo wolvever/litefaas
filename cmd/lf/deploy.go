@@ -1,7 +1,9 @@
 package main
 
 import (
+	"flag"
 	"fmt"
+	"io"
 
 	"github.com/wolvever/litefaas/internal/client"
 	"github.com/wolvever/litefaas/internal/manifest"
@@ -9,28 +11,43 @@ import (
 )
 
 func cmdDeploy(args []string) error {
-	gw, tok, cfgDir, rest := gatewayFlags(args)
+	fs := flag.NewFlagSet("deploy", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	gw := fs.String("gateway", "", "litefaasd URL (overrides context)")
+	tok := fs.String("token", "", "bearer token (overrides context / LITEFAAS_TOKEN)")
+	cfgDir := fs.String("config-dir", "", "CLI config directory (default ~/.litefaas)")
+	stackID := fs.String("stack", "", "stack pack id (overrides detection)")
+	rest, err := parseMixed(fs, args)
+	if err != nil {
+		return err
+	}
 	dir := "."
 	if len(rest) > 0 {
 		dir = rest[0]
 	}
-	_, m, stack, err := manifest.Resolve(dir)
+	res, err := manifest.ResolveDetect(dir, *stackID)
 	if err != nil {
 		return err
 	}
-	c, err := resolveClient(gw, tok, cfgDir)
+	c, err := resolveClient(*gw, *tok, *cfgDir)
 	if err != nil {
 		return err
 	}
-	if stack != nil {
-		for i := range stack.Services {
-			if err := deployResource(c, stack.Services[i].Resource()); err != nil {
+	if res.Multi != nil {
+		for i := range res.Multi.Services {
+			if err := deployResource(c, res.Multi.Services[i].Resource()); err != nil {
 				return err
 			}
 		}
 		return nil
 	}
-	return deployResource(c, m.Resource())
+	if res.Detected && res.Pack != nil {
+		fmt.Printf("detected stack=%s\n", res.Pack.ID)
+		if h := res.Pack.FormatHints(); h != "" {
+			fmt.Printf("stack hints (not started by litefaas): %s\n", h)
+		}
+	}
+	return deployResource(c, res.Manifest.Resource())
 }
 
 func deployResource(c *client.Client, res types.Resource) error {

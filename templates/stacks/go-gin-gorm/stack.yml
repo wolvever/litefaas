@@ -1,0 +1,21 @@
+id: go-gin-gorm
+title: Gin + GORM
+language: go
+runtime: go
+kind: backend
+memory: 128
+priority: 80
+description: Go HTTP API with Gin and GORM. Bind 0.0.0.0:$PORT.
+
+match:
+  - files: [go.mod]
+    contains:
+      - file: go.mod
+        any: [github.com/gin-gonic/gin]
+      - file: go.mod
+        any: [gorm.io/gorm, github.com/jinzhu/gorm]
+
+hints:
+  sidecars: [postgres]
+  env:
+    DATABASE_URL: postgres://app:app@localhost:5432/app
