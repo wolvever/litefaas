@@ -141,6 +141,35 @@ func (s *Store) List() ([]types.Resource, error) {
 	return out, rows.Err()
 }
 
+func (s *Store) Update(r types.Resource) (types.Resource, error) {
+	cur, err := s.Get(r.Name)
+	if err != nil {
+		return types.Resource{}, err
+	}
+	now := time.Now().UTC().Truncate(time.Second)
+	r.CreatedAt = cur.CreatedAt
+	r.UpdatedAt = now
+	raw, err := json.Marshal(r)
+	if err != nil {
+		return types.Resource{}, err
+	}
+	res, err := s.db.Exec(
+		`UPDATE resources SET kind = ?, runtime = ?, spec_json = ?, updated_at = ? WHERE name = ?`,
+		string(r.Kind), string(r.Runtime), string(raw), now.Format(time.RFC3339), r.Name,
+	)
+	if err != nil {
+		return types.Resource{}, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return types.Resource{}, err
+	}
+	if n == 0 {
+		return types.Resource{}, ErrNotFound
+	}
+	return r, nil
+}
+
 func (s *Store) Delete(name string) error {
 	res, err := s.db.Exec(`DELETE FROM resources WHERE name = ?`, name)
 	if err != nil {

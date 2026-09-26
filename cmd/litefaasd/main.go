@@ -9,6 +9,7 @@ import (
 
 	"github.com/wolvever/litefaas/internal/api"
 	"github.com/wolvever/litefaas/internal/config"
+	"github.com/wolvever/litefaas/internal/runner"
 	"github.com/wolvever/litefaas/internal/store"
 	"github.com/wolvever/litefaas/internal/version"
 )
@@ -32,7 +33,7 @@ func main() {
 	}
 	defer st.Close()
 
-	srv := api.New(api.Options{Store: st, Token: *token})
+	srv := api.New(api.Options{Store: st, Token: *token, Runner: runner.NewDocker()})
 	log.Printf("litefaasd %s listening on http://%s data-dir=%s", version.Version, *addr, st.Dir())
 	if err := http.ListenAndServe(*addr, srv); err != nil {
 		log.Printf("listen: %v", err)

@@ -1,0 +1,43 @@
+package main
+
+import (
+	"encoding/json"
+	"io"
+	"log"
+	"net/http"
+	"os"
+)
+
+func main() {
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		_, _ = io.WriteString(w, "ok")
+	})
+	mux.HandleFunc("/", handle)
+
+	addr := ":" + port
+	log.Printf("{{name}} listening on %s", addr)
+	log.Fatal(http.ListenAndServe(addr, mux))
+}
+
+func handle(w http.ResponseWriter, r *http.Request) {
+	var in map[string]any
+	if r.Body != nil {
+		_ = json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in)
+	}
+	who := "{{name}}"
+	if s, ok := in["name"].(string); ok && s != "" {
+		who = s
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"message":  "hello from " + who,
+		"function": "{{name}}",
+	})
+}
