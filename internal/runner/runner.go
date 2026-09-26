@@ -70,12 +70,15 @@ func (d *Docker) Deploy(ctx context.Context, res types.Resource) (Result, error)
 	cname := ContainerName(res.Name)
 	_ = d.Remove(ctx, res.Name)
 
+	// Backends and frontends are always-on (RFC-0001 §5.2): no scale-to-zero.
+	// Functions use the same restart policy until an idle TTL exists (Phase 6).
 	args := []string{
 		"run", "-d",
 		"--name", cname,
 		"--restart", "unless-stopped",
 		"--label", "litefaas.managed=1",
 		"--label", "litefaas.name=" + res.Name,
+		"--label", "litefaas.kind=" + string(res.Kind),
 		"--memory", fmt.Sprintf("%dm", mem),
 		"-p", fmt.Sprintf("127.0.0.1::%d", port),
 	}

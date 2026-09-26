@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"regexp"
@@ -53,6 +54,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/functions/{name}/deploy", s.auth(s.handleDeploy))
 	s.mux.HandleFunc("POST /v1/invoke/{name}", s.auth(s.handleInvoke))
 	s.mux.HandleFunc("GET /v1/routes", s.auth(s.handleRoutes))
+	s.mux.HandleFunc("PUT /v1/routes", s.auth(s.handlePutRoutes))
+	s.mux.HandleFunc("DELETE /v1/routes", s.auth(s.handleClearRoutes))
 }
 
 func isControlPath(p string) bool {
@@ -384,26 +387,64 @@ func validateResource(r *types.Resource) error {
 	return nil
 }
 
+func (s *Server) endpoints(ctx context.Context, names ...string) map[string]string {
+	eps := map[string]string{}
+	if s.runner == nil {
+		return eps
+	}
+	seen := map[string]struct{}{}
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		if _, ok := seen[name]; ok {
+			continue
+		}
+		seen[name] = struct{}{}
+		ep, err := s.runner.Endpoint(ctx, name)
+		if err != nil {
+			continue
+		}
+		eps[name] = ep
+	}
+	return eps
+}
+
 func (s *Server) edgeRoutes(ctx context.Context) ([]proxy.Route, error) {
 	if s.store == nil {
 		return nil, nil
+	}
+	override, ok, err := s.store.GetRouteOverride()
+	if err != nil {
+		return nil, err
+	}
+	if ok {
+		names := make([]string, 0, len(override))
+		for _, r := range override {
+			names = append(names, r.Name)
+		}
+		eps := s.endpoints(ctx, names...)
+		out := make([]proxy.Route, 0, len(override))
+		for _, r := range override {
+			out = append(out, proxy.Route{
+				Path:        r.Path,
+				Name:        r.Name,
+				Endpoint:    eps[r.Name],
+				StripPrefix: r.StripPrefix,
+				SPA:         r.SPA,
+			})
+		}
+		return out, nil
 	}
 	list, err := s.store.List()
 	if err != nil {
 		return nil, err
 	}
-	eps := map[string]string{}
+	names := make([]string, 0, len(list))
 	for _, res := range list {
-		if s.runner == nil {
-			continue
-		}
-		ep, err := s.runner.Endpoint(ctx, res.Name)
-		if err != nil {
-			continue
-		}
-		eps[res.Name] = ep
+		names = append(names, res.Name)
 	}
-	return proxy.FromResources(list, eps), nil
+	return proxy.FromResources(list, s.endpoints(ctx, names...)), nil
 }
 
 func (s *Server) handleRoutes(w http.ResponseWriter, r *http.Request) {
@@ -416,6 +457,57 @@ func (s *Server) handleRoutes(w http.ResponseWriter, r *http.Request) {
 		routes = []proxy.Route{}
 	}
 	writeJSON(w, http.StatusOK, routes)
+}
+
+func (s *Server) handlePutRoutes(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "store not configured"})
+		return
+	}
+	var in []store.RouteSpec
+	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid json: " + err.Error()})
+		return
+	}
+	if in == nil {
+		in = []store.RouteSpec{}
+	}
+	for i, rt := range in {
+		if strings.TrimSpace(rt.Path) == "" {
+			writeJSON(w, http.StatusBadRequest, errorBody{Error: fmt.Sprintf("routes[%d]: path is required", i)})
+			return
+		}
+		if !strings.HasPrefix(rt.Path, "/") {
+			writeJSON(w, http.StatusBadRequest, errorBody{Error: fmt.Sprintf("routes[%d]: path must start with /", i)})
+			return
+		}
+		if strings.TrimSpace(rt.Name) == "" {
+			writeJSON(w, http.StatusBadRequest, errorBody{Error: fmt.Sprintf("routes[%d]: name is required", i)})
+			return
+		}
+	}
+	if err := s.store.SetRouteOverride(in); err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+		return
+	}
+	routes, err := s.edgeRoutes(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+		return
+	}
+	writeJSON(w, http.StatusOK, routes)
+}
+
+func (s *Server) handleClearRoutes(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "store not configured"})
+		return
+	}
+	if err := s.store.ClearRouteOverride(); err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *Server) handleEdge(w http.ResponseWriter, r *http.Request) bool {

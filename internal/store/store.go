@@ -76,6 +76,11 @@ CREATE TABLE IF NOT EXISTS revisions (
 	created_at TEXT NOT NULL,
 	FOREIGN KEY (name) REFERENCES resources(name) ON DELETE CASCADE
 );
+CREATE TABLE IF NOT EXISTS routes (
+	id INTEGER PRIMARY KEY CHECK (id = 1),
+	spec_json TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
 `)
 	return err
 }
@@ -227,6 +232,56 @@ func (s *Store) ListRevisions(name string) ([]types.Revision, error) {
 		out = []types.Revision{}
 	}
 	return out, rows.Err()
+}
+
+// RouteSpec is a persisted edge binding (endpoint is filled at serve time).
+type RouteSpec struct {
+	Path        string `json:"path"`
+	Name        string `json:"name"`
+	StripPrefix bool   `json:"strip_prefix,omitempty"`
+	SPA         bool   `json:"spa,omitempty"`
+}
+
+// GetRouteOverride returns the PUT /v1/routes table, or false if derived-from-manifests.
+func (s *Store) GetRouteOverride() ([]RouteSpec, bool, error) {
+	var raw string
+	err := s.db.QueryRow(`SELECT spec_json FROM routes WHERE id = 1`).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	var out []RouteSpec
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, false, err
+	}
+	if out == nil {
+		out = []RouteSpec{}
+	}
+	return out, true, nil
+}
+
+func (s *Store) SetRouteOverride(routes []RouteSpec) error {
+	if routes == nil {
+		routes = []RouteSpec{}
+	}
+	raw, err := json.Marshal(routes)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)
+	_, err = s.db.Exec(
+		`INSERT INTO routes (id, spec_json, updated_at) VALUES (1, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET spec_json = excluded.spec_json, updated_at = excluded.updated_at`,
+		string(raw), now,
+	)
+	return err
+}
+
+func (s *Store) ClearRouteOverride() error {
+	_, err := s.db.Exec(`DELETE FROM routes WHERE id = 1`)
+	return err
 }
 
 func isUnique(err error) bool {

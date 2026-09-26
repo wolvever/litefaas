@@ -206,3 +206,57 @@ func TestInvokeFunction(t *testing.T) {
 		t.Fatalf("missing invoke status = %d", rec.Code)
 	}
 }
+
+func TestPutRoutesOverride(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"path":"` + r.URL.Path + `"}`))
+	}))
+	t.Cleanup(backend.Close)
+
+	fake := runner.NewFake()
+	fake.Endpoints["orders"] = backend.URL
+	srv := New(Options{Store: st, Runner: fake})
+
+	body := []byte(`{"name":"orders","kind":"backend","runtime":"dockerfile","triggers":[{"type":"http","path":"/unused"}]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPut, "/v1/routes", bytes.NewReader([]byte(`[{"path":"/orders","name":"orders","strip_prefix":true}]`)))
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("put routes status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/routes", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("get routes status = %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/orders/x", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`"/x"`)) {
+		t.Fatalf("edge /orders/x = %d %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodDelete, "/v1/routes", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("clear routes status = %d", rec.Code)
+	}
+}

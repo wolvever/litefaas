@@ -1,0 +1,12 @@
+name: {{name}}
+kind: {{kind}}
+runtime: dockerfile
+handler: .
+image: {{name}}:latest
+port: 8080
+memory: 128
+health: /healthz
+triggers:
+  - type: http
+    path: /{{name}}
+    strip_prefix: true

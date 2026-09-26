@@ -18,25 +18,55 @@ type Route struct {
 	SPA         bool   `json:"spa,omitempty"`
 }
 
+func matchPrefix(path, routePath string) bool {
+	if routePath == "" {
+		return false
+	}
+	if routePath == "/" {
+		return strings.HasPrefix(path, "/")
+	}
+	p := strings.TrimRight(routePath, "/")
+	return path == p || path == p+"/" || strings.HasPrefix(path, p+"/")
+}
+
 func Match(path string, routes []Route) (Route, bool) {
 	var best Route
 	bestLen := -1
 	for _, r := range routes {
-		p := r.Path
-		if p == "" {
+		if !matchPrefix(path, r.Path) {
 			continue
 		}
-		if path == p || strings.HasPrefix(path, strings.TrimRight(p, "/")+"/") || (p == "/" && strings.HasPrefix(path, "/")) {
-			if len(p) > bestLen {
-				best = r
-				bestLen = len(p)
-			}
+		n := len(strings.TrimRight(r.Path, "/"))
+		if r.Path == "/" {
+			n = 1
+		}
+		if n > bestLen {
+			best = r
+			bestLen = n
 		}
 	}
 	if bestLen < 0 {
 		return Route{}, false
 	}
 	return best, true
+}
+
+func stripPath(path, prefix string) string {
+	if prefix == "" || prefix == "/" {
+		return path
+	}
+	p := strings.TrimRight(prefix, "/")
+	if path == p || path == p+"/" {
+		return "/"
+	}
+	if strings.HasPrefix(path, p+"/") {
+		out := strings.TrimPrefix(path, p)
+		if out == "" {
+			return "/"
+		}
+		return out
+	}
+	return path
 }
 
 func Director(route Route) func(*http.Request) {
@@ -50,13 +80,10 @@ func Director(route Route) func(*http.Request) {
 		req.Host = target.Host
 		if route.StripPrefix && route.Path != "/" {
 			prefix := strings.TrimRight(route.Path, "/")
-			if req.URL.Path == prefix {
-				req.URL.Path = "/"
-			} else if strings.HasPrefix(req.URL.Path, prefix+"/") {
-				req.URL.Path = strings.TrimPrefix(req.URL.Path, prefix)
-				if req.URL.Path == "" {
-					req.URL.Path = "/"
-				}
+			req.Header.Set("X-Forwarded-Prefix", prefix)
+			req.URL.Path = stripPath(req.URL.Path, prefix)
+			if req.URL.RawPath != "" {
+				req.URL.RawPath = stripPath(req.URL.RawPath, prefix)
 			}
 		}
 	}
@@ -70,9 +97,6 @@ func FromResources(resources []types.Resource, endpoints map[string]string) []Ro
 	var out []Route
 	for _, res := range resources {
 		ep := endpoints[res.Name]
-		if ep == "" {
-			continue
-		}
 		for _, t := range res.Triggers {
 			if t.Type != "" && t.Type != "http" {
 				continue
@@ -88,6 +112,9 @@ func FromResources(resources []types.Resource, endpoints map[string]string) []Ro
 				SPA:         t.SPA,
 			})
 		}
+	}
+	if out == nil {
+		out = []Route{}
 	}
 	return out
 }

@@ -64,6 +64,7 @@ func TestDockerDeployCommands(t *testing.T) {
 	d := NewDocker()
 	res, err := d.Deploy(context.Background(), types.Resource{
 		Name:   "hello",
+		Kind:   types.KindBackend,
 		Image:  "hello:latest",
 		Port:   8080,
 		Memory: 64,
@@ -87,7 +88,7 @@ func TestDockerDeployCommands(t *testing.T) {
 		t.Fatal("docker run not called")
 	}
 	joined := strings.Join(run, " ")
-	for _, want := range []string{"--name litefaas-hello", "--memory 64m", "-p 127.0.0.1::8080", "-e GREETING=hi", "-e PORT=8080", "hello:latest"} {
+	for _, want := range []string{"--name litefaas-hello", "--restart unless-stopped", "--label litefaas.kind=backend", "--memory 64m", "-p 127.0.0.1::8080", "-e GREETING=hi", "-e PORT=8080", "hello:latest"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("run missing %q in %v", want, run)
 		}

@@ -72,6 +72,7 @@ func TestInitJavaPythonAndPresets(t *testing.T) {
 		{"orders", types.RuntimeJava, "spring-boot", "src/main/java/hello/Application.java"},
 		{"api", types.RuntimePython, "fastapi", "main.py"},
 		{"web", types.RuntimeStatic, "", "index.html"},
+		{"orders-df", types.RuntimeDockerfile, "", "handler.py"},
 	}
 	for _, tc := range cases {
 		dest, err := Init(Options{Name: tc.name, Runtime: tc.rt, Preset: tc.preset, Dir: parent})
@@ -101,8 +102,26 @@ func TestInitJavaPythonAndPresets(t *testing.T) {
 	}
 }
 
+func TestInitDockerfileDefaultsBackend(t *testing.T) {
+	parent := t.TempDir()
+	dest, err := Init(Options{Name: "orders", Runtime: types.RuntimeDockerfile, Dir: parent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, _, err := manifest.LoadDir(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Runtime != "dockerfile" || m.Kind != "backend" {
+		t.Fatalf("manifest = %+v", m)
+	}
+	if len(m.Triggers) == 0 || m.Triggers[0].Path != "/orders" || !m.Triggers[0].StripPrefix {
+		t.Fatalf("triggers = %+v", m.Triggers)
+	}
+}
+
 func TestInitRejectsUnknownRuntime(t *testing.T) {
-	_, err := Init(Options{Name: "x", Runtime: types.RuntimeDockerfile, Dir: t.TempDir()})
+	_, err := Init(Options{Name: "x", Runtime: types.Runtime("node"), Dir: t.TempDir()})
 	if err == nil {
 		t.Fatal("expected error")
 	}

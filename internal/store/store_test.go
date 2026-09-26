@@ -84,3 +84,36 @@ func TestResourceCRUDPersists(t *testing.T) {
 		t.Fatalf("get after delete = %v", err)
 	}
 }
+
+func TestRouteOverridePersists(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+
+	if _, ok, err := s.GetRouteOverride(); err != nil || ok {
+		t.Fatalf("empty override ok=%v err=%v", ok, err)
+	}
+	want := []RouteSpec{{Path: "/orders", Name: "orders", StripPrefix: true}}
+	if err := s.SetRouteOverride(want); err != nil {
+		t.Fatal(err)
+	}
+	s.Close()
+	s, err = Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	got, ok, err := s.GetRouteOverride()
+	if err != nil || !ok || len(got) != 1 || got[0].Name != "orders" || !got[0].StripPrefix {
+		t.Fatalf("override = %+v ok=%v err=%v", got, ok, err)
+	}
+	if err := s.ClearRouteOverride(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := s.GetRouteOverride(); err != nil || ok {
+		t.Fatalf("cleared ok=%v err=%v", ok, err)
+	}
+}

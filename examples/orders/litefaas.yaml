@@ -1,0 +1,12 @@
+name: orders
+kind: backend
+runtime: dockerfile
+handler: .
+image: orders:latest
+port: 8080
+memory: 128
+health: /healthz
+triggers:
+  - type: http
+    path: /orders
+    strip_prefix: true
