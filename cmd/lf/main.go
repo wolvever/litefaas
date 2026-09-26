@@ -10,6 +10,7 @@ import (
 
 	"github.com/wolvever/litefaas/internal/client"
 	"github.com/wolvever/litefaas/internal/config"
+	"github.com/wolvever/litefaas/internal/token"
 	"github.com/wolvever/litefaas/internal/version"
 )
 
@@ -50,6 +51,14 @@ func run(args []string) error {
 		return cmdContext(args[1:])
 	case "routes", "route":
 		return cmdRoutes(args[1:])
+	case "logs":
+		return cmdLogs(args[1:])
+	case "up":
+		return cmdUp(args[1:])
+	case "token":
+		return cmdToken(args[1:])
+	case "metrics":
+		return cmdMetrics(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q\n\nRun 'lf help' for usage", args[0])
 	}
@@ -70,6 +79,10 @@ Usage:
   lf routes                  List the edge route table (GET /v1/routes)
   lf routes set <file.json>  Replace the route table (PUT /v1/routes)
   lf routes clear            Drop the override; derive routes from manifests
+  lf logs <name> [--follow]  Stream container logs (GET /v1/functions/{name}/logs)
+  lf up [path]               Build and deploy stack.yaml (or a single litefaas.yaml)
+  lf token                   Print the resolved bearer token
+  lf metrics                 GET /v1/metrics
   lf context                 Show / list / create / use CLI contexts
   lf help                    Show this help
 
@@ -143,7 +156,45 @@ func resolveClient(gatewayFlag, tokenFlag, configDir string) (*client.Client, er
 	if tokenFlag != "" {
 		tok = tokenFlag
 	}
+	if tok == "" {
+		dir := configDir
+		if dir == "" {
+			dir = config.DefaultDir()
+		}
+		if t, err := token.Load(token.Path(dir)); err == nil {
+			tok = t
+		}
+	}
 	return client.New(gw, tok), nil
+}
+
+func cmdToken(args []string) error {
+	gw, tok, dir, _ := gatewayFlags(args)
+	c, err := resolveClient(gw, tok, dir)
+	if err != nil {
+		return err
+	}
+	if c.Token == "" {
+		fmt.Println("(none)")
+		return nil
+	}
+	fmt.Println(c.Token)
+	return nil
+}
+
+func cmdMetrics(args []string) error {
+	gw, tok, dir, _ := gatewayFlags(args)
+	c, err := resolveClient(gw, tok, dir)
+	if err != nil {
+		return err
+	}
+	s, err := c.Metrics()
+	if err != nil {
+		return err
+	}
+	fmt.Printf("uptime_seconds=%d invokes=%d deploys=%d edge_requests=%d errors=%d resources=%d\n",
+		s.UptimeSeconds, s.Invokes, s.Deploys, s.EdgeRequests, s.Errors, s.Resources)
+	return nil
 }
 
 func cmdHealth(args []string) error {

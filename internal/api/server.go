@@ -10,10 +10,12 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/wolvever/litefaas/internal/manifest"
+	"github.com/wolvever/litefaas/internal/metrics"
 	"github.com/wolvever/litefaas/internal/proxy"
 	"github.com/wolvever/litefaas/internal/runner"
 	"github.com/wolvever/litefaas/internal/store"
@@ -25,20 +27,26 @@ var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // Server is the control-plane HTTP handler.
 type Server struct {
-	mux    *http.ServeMux
-	store  *store.Store
-	token  string
-	runner runner.Runner
+	mux     *http.ServeMux
+	store   *store.Store
+	token   string
+	runner  runner.Runner
+	metrics *metrics.Metrics
 }
 
 type Options struct {
-	Store  *store.Store
-	Token  string
-	Runner runner.Runner
+	Store   *store.Store
+	Token   string
+	Runner  runner.Runner
+	Metrics *metrics.Metrics
 }
 
 func New(opts Options) *Server {
-	s := &Server{mux: http.NewServeMux(), store: opts.Store, token: opts.Token, runner: opts.Runner}
+	m := opts.Metrics
+	if m == nil {
+		m = metrics.New()
+	}
+	s := &Server{mux: http.NewServeMux(), store: opts.Store, token: opts.Token, runner: opts.Runner, metrics: m}
 	s.routes()
 	return s
 }
@@ -53,6 +61,8 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /v1/functions/{name}", s.auth(s.handleDelete))
 	s.mux.HandleFunc("POST /v1/functions/{name}/deploy", s.auth(s.handleDeploy))
 	s.mux.HandleFunc("POST /v1/invoke/{name}", s.auth(s.handleInvoke))
+	s.mux.HandleFunc("GET /v1/functions/{name}/logs", s.auth(s.handleLogs))
+	s.mux.HandleFunc("GET /v1/metrics", s.auth(s.handleMetrics))
 	s.mux.HandleFunc("GET /v1/routes", s.auth(s.handleRoutes))
 	s.mux.HandleFunc("PUT /v1/routes", s.auth(s.handlePutRoutes))
 	s.mux.HandleFunc("DELETE /v1/routes", s.auth(s.handleClearRoutes))
@@ -286,10 +296,12 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := s.runner.Deploy(r.Context(), res)
 	if err != nil {
+		s.metrics.IncErrors()
 		_, _ = s.store.AddRevision(name, res.Image, "failed")
 		writeJSON(w, http.StatusBadGateway, errorBody{Error: "deploy: " + err.Error()})
 		return
 	}
+	s.metrics.IncDeploys()
 	rev, err := s.store.AddRevision(name, res.Image, "deployed")
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
@@ -347,9 +359,11 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
+		s.metrics.IncErrors()
 		writeJSON(w, http.StatusGatewayTimeout, errorBody{Error: "invoke: " + err.Error()})
 		return
 	}
+	s.metrics.IncInvokes()
 	defer resp.Body.Close()
 	for _, h := range []string{"Content-Type", "Content-Length"} {
 		if v := resp.Header.Get(h); v != "" {
@@ -384,6 +398,16 @@ func validateResource(r *types.Resource) error {
 			r.Health = "/healthz"
 		}
 	}
+	mem, err := types.EnforceMemory(r.Memory)
+	if err != nil {
+		return err
+	}
+	r.Memory = mem
+	timeout, err := types.EnforceTimeout(r.Timeout, r.Kind)
+	if err != nil {
+		return err
+	}
+	r.Timeout = timeout
 	return nil
 }
 
@@ -510,6 +534,74 @@ func (s *Server) handleClearRoutes(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "store not configured"})
+		return
+	}
+	if s.runner == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "runner not configured"})
+		return
+	}
+	name := r.PathValue("name")
+	if _, err := s.store.Get(name); errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, errorBody{Error: "not found"})
+		return
+	} else if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+		return
+	}
+	if _, err := s.runner.Endpoint(r.Context(), name); errors.Is(err, runner.ErrNotDeployed) {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "not deployed"})
+		return
+	} else if err != nil {
+		writeJSON(w, http.StatusBadGateway, errorBody{Error: err.Error()})
+		return
+	}
+	tail := 100
+	if v := r.URL.Query().Get("tail"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errorBody{Error: "tail must be an integer"})
+			return
+		}
+		tail = n
+	}
+	follow := r.URL.Query().Get("follow") == "1" || r.URL.Query().Get("follow") == "true"
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	flusher, _ := w.(http.Flusher)
+	if err := s.runner.Logs(r.Context(), name, tail, follow, flushWriter{w: w, f: flusher}); err != nil {
+		s.metrics.IncErrors()
+	}
+}
+
+type flushWriter struct {
+	w io.Writer
+	f http.Flusher
+}
+
+func (fw flushWriter) Write(p []byte) (int, error) {
+	n, err := fw.w.Write(p)
+	if fw.f != nil {
+		fw.f.Flush()
+	}
+	return n, err
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, _ *http.Request) {
+	n := 0
+	if s.store != nil {
+		list, err := s.store.List()
+		if err != nil {
+			writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+			return
+		}
+		n = len(list)
+	}
+	writeJSON(w, http.StatusOK, s.metrics.Snapshot(n))
+}
+
 func (s *Server) handleEdge(w http.ResponseWriter, r *http.Request) bool {
 	routes, err := s.edgeRoutes(r.Context())
 	if err != nil || len(routes) == 0 {
@@ -519,7 +611,18 @@ func (s *Server) handleEdge(w http.ResponseWriter, r *http.Request) bool {
 	if !ok || route.Endpoint == "" {
 		return false
 	}
-	proxy.Handler(route).ServeHTTP(w, r)
+	s.metrics.IncEdge()
+	h := proxy.Handler(route)
+	if s.store != nil {
+		if res, err := s.store.Get(route.Name); err == nil && res.Kind == types.KindFunction {
+			to, err := manifest.ParseTimeout(res.Timeout)
+			if err != nil {
+				to = types.DefaultTimeout
+			}
+			h = http.TimeoutHandler(h, to, "function timeout\n")
+		}
+	}
+	h.ServeHTTP(w, r)
 	return true
 }
 

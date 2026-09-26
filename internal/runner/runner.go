@@ -17,7 +17,6 @@ import (
 
 const (
 	containerPrefix = "litefaas-"
-	defaultMemory   = 128
 	healthWait      = 15 * time.Second
 	healthEvery     = 250 * time.Millisecond
 )
@@ -37,6 +36,7 @@ type Runner interface {
 	Deploy(ctx context.Context, res types.Resource) (Result, error)
 	Remove(ctx context.Context, name string) error
 	Endpoint(ctx context.Context, name string) (string, error)
+	Logs(ctx context.Context, name string, tail int, follow bool, w io.Writer) error
 }
 
 // Docker is a single-node runner that shells out to the docker CLI.
@@ -63,9 +63,9 @@ func (d *Docker) Deploy(ctx context.Context, res types.Resource) (Result, error)
 	if port == 0 {
 		port = 8080
 	}
-	mem := res.Memory
-	if mem <= 0 {
-		mem = defaultMemory
+	mem, err := types.EnforceMemory(res.Memory)
+	if err != nil {
+		return Result{}, err
 	}
 	cname := ContainerName(res.Name)
 	_ = d.Remove(ctx, res.Name)
@@ -80,6 +80,7 @@ func (d *Docker) Deploy(ctx context.Context, res types.Resource) (Result, error)
 		"--label", "litefaas.name=" + res.Name,
 		"--label", "litefaas.kind=" + string(res.Kind),
 		"--memory", fmt.Sprintf("%dm", mem),
+		"--memory-swap", fmt.Sprintf("%dm", mem),
 		"-p", fmt.Sprintf("127.0.0.1::%d", port),
 	}
 	for k, v := range res.Env {
@@ -123,6 +124,30 @@ func (d *Docker) Endpoint(ctx context.Context, name string) (string, error) {
 		return "", err
 	}
 	return "http://127.0.0.1:" + hostPort, nil
+}
+
+func (d *Docker) Logs(ctx context.Context, name string, tail int, follow bool, w io.Writer) error {
+	if err := dockercli.Available(ctx); err != nil {
+		return err
+	}
+	if _, err := d.Endpoint(ctx, name); err != nil {
+		return err
+	}
+	if tail <= 0 {
+		tail = 100
+	}
+	if w == nil {
+		w = io.Discard
+	}
+	args := []string{"logs", "--tail", strconv.Itoa(tail)}
+	if follow {
+		args = append(args, "--follow")
+	}
+	args = append(args, ContainerName(name))
+	if err := dockercli.Exec(ctx, w, w, "docker", args...); err != nil {
+		return fmt.Errorf("docker logs: %w", err)
+	}
+	return nil
 }
 
 func (d *Docker) waitHealthy(ctx context.Context, endpoint, health string) error {

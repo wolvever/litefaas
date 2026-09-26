@@ -260,3 +260,61 @@ func TestPutRoutesOverride(t *testing.T) {
 		t.Fatalf("clear routes status = %d", rec.Code)
 	}
 }
+
+func TestLogsMetricsAndLimits(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	fake := runner.NewFake()
+	fake.Endpoints["hello"] = "http://127.0.0.1:9"
+	fake.LogText["hello"] = "hello started\n"
+	srv := New(Options{Store: st, Runner: fake})
+
+	body := []byte(`{"name":"hello","kind":"function","runtime":"go","image":"hello:latest"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/functions/hello/logs?tail=20", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte("hello started")) {
+		t.Fatalf("logs = %d %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/functions/hello/deploy", bytes.NewReader([]byte(`{"image":"hello:latest"}`)))
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("deploy status = %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metrics status = %d", rec.Code)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte(`"deploys":1`)) {
+		t.Fatalf("metrics = %s", rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader([]byte(`{"name":"tiny","kind":"function","runtime":"go","memory":8}`)))
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("tiny memory status = %d body=%s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader([]byte(`{"name":"slow","kind":"function","runtime":"go","timeout":"10ms"}`)))
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("short timeout status = %d body=%s", rec.Code, rec.Body.String())
+	}
+}

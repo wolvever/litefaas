@@ -88,10 +88,47 @@ func TestDockerDeployCommands(t *testing.T) {
 		t.Fatal("docker run not called")
 	}
 	joined := strings.Join(run, " ")
-	for _, want := range []string{"--name litefaas-hello", "--restart unless-stopped", "--label litefaas.kind=backend", "--memory 64m", "-p 127.0.0.1::8080", "-e GREETING=hi", "-e PORT=8080", "hello:latest"} {
+	for _, want := range []string{"--name litefaas-hello", "--restart unless-stopped", "--label litefaas.kind=backend", "--memory 64m", "--memory-swap 64m", "-p 127.0.0.1::8080", "-e GREETING=hi", "-e PORT=8080", "hello:latest"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("run missing %q in %v", want, run)
 		}
+	}
+}
+
+func TestDockerLogs(t *testing.T) {
+	origOut := dockercli.Output
+	origExec := dockercli.Exec
+	t.Cleanup(func() {
+		dockercli.Output = origOut
+		dockercli.Exec = origExec
+	})
+	dockercli.Output = func(_ context.Context, name string, args ...string) (string, error) {
+		if args[0] == "version" {
+			return "27.0.0", nil
+		}
+		if args[0] == "port" {
+			return "8080/tcp -> 127.0.0.1:32768", nil
+		}
+		t.Fatalf("unexpected output %v", args)
+		return "", nil
+	}
+	var got []string
+	dockercli.Exec = func(_ context.Context, stdout, _ io.Writer, name string, args ...string) error {
+		got = append([]string{name}, args...)
+		_, _ = io.WriteString(stdout, "line\n")
+		return nil
+	}
+	var buf strings.Builder
+	d := NewDocker()
+	if err := d.Logs(context.Background(), "hello", 50, true, &buf); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(got, " ")
+	if !strings.Contains(joined, "logs --tail 50 --follow litefaas-hello") {
+		t.Fatalf("exec = %v", got)
+	}
+	if buf.String() != "line\n" {
+		t.Fatalf("buf = %q", buf.String())
 	}
 }
 

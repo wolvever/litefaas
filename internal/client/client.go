@@ -3,13 +3,16 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/wolvever/litefaas/internal/metrics"
 	"github.com/wolvever/litefaas/internal/proxy"
 	"github.com/wolvever/litefaas/internal/types"
 )
@@ -94,6 +97,56 @@ func (c *Client) PutRoutes(routes []proxy.Route) ([]proxy.Route, error) {
 
 func (c *Client) ClearRoutes() error {
 	return c.do(http.MethodDelete, "/v1/routes", nil, nil)
+}
+
+func (c *Client) Metrics() (metrics.Snapshot, error) {
+	var out metrics.Snapshot
+	if err := c.do(http.MethodGet, "/v1/metrics", nil, &out); err != nil {
+		return metrics.Snapshot{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) Logs(ctx context.Context, name string, tail int, follow bool, w io.Writer) error {
+	if tail <= 0 {
+		tail = 100
+	}
+	path := "/v1/functions/" + name + "/logs?tail=" + strconv.Itoa(tail)
+	if follow {
+		path += "&follow=1"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Gateway+path, nil)
+	if err != nil {
+		return err
+	}
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	httpClient := &http.Client{}
+	if c.HTTPClient != nil && c.HTTPClient.Transport != nil {
+		httpClient.Transport = c.HTTPClient.Transport
+	}
+	if !follow && c.HTTPClient != nil && c.HTTPClient.Timeout > 0 {
+		httpClient.Timeout = c.HTTPClient.Timeout
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("gateway %s: %w", c.Gateway, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		msg := strings.TrimSpace(string(raw))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return fmt.Errorf("%s %s: %s", http.MethodGet, path, msg)
+	}
+	if w == nil {
+		w = io.Discard
+	}
+	_, err = io.Copy(w, resp.Body)
+	return err
 }
 
 func (c *Client) Deploy(name, image string) (types.Revision, error) {

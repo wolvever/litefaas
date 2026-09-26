@@ -90,14 +90,18 @@ func (m *Manifest) normalize() error {
 	if m.Port == 0 {
 		m.Port = 8080
 	}
-	if m.Memory == 0 {
-		m.Memory = 128
-	}
-	if m.Timeout == "" {
-		m.Timeout = "30s"
-	}
-	if _, err := ParseTimeout(m.Timeout); err != nil {
+	mem, err := types.EnforceMemory(m.Memory)
+	if err != nil {
 		return err
+	}
+	m.Memory = mem
+	if m.Timeout == "" && m.Kind == string(types.KindFunction) {
+		m.Timeout = types.DefaultTimeout.String()
+	}
+	if m.Timeout != "" {
+		if _, err := types.EnforceTimeout(m.Timeout, types.Kind(m.Kind)); err != nil {
+			return err
+		}
 	}
 	if m.Health == "" {
 		if m.Kind == string(types.KindFrontend) {
@@ -129,7 +133,7 @@ func (m *Manifest) Resource() types.Resource {
 
 func ParseTimeout(s string) (time.Duration, error) {
 	if s == "" {
-		return 30 * time.Second, nil
+		return types.DefaultTimeout, nil
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil {

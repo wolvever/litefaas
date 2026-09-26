@@ -2,7 +2,7 @@
 
 Poor man's serverless: a minimal **CLI + API** control plane to build and deploy **functions**, **backends** (Java / Go / Python), and a **lightweight frontend**, self-hosted on a single node.
 
-> Status: RFC accepted — Phases 0–5 are in tree. Functions, always-on backends (including `runtime: dockerfile`), a static frontend, and a persisted path route table run on one Docker host.
+> Status: RFC accepted — Phases 0–6 (v0.1.0-alpha) are in tree. Functions, always-on backends (including `runtime: dockerfile`), a static frontend, a persisted path route table, bearer tokens, metrics, log streaming, and optional `stack.yaml` run on one Docker host.
 
 ## Docs
 
@@ -35,7 +35,7 @@ This is the Phase 2 demo. You need the Go toolchain, a local Docker daemon, and 
 **Terminal 1 — start the daemon**
 
 ```bash
-./litefaasd --addr 127.0.0.1:8080 --data-dir ./data
+./litefaasd --addr 127.0.0.1:8080 --data-dir ./data --insecure
 ```
 
 **Terminal 2 — init, build, deploy, invoke**
@@ -102,7 +102,7 @@ cd hello-py && ../lf build && ../lf deploy --gateway http://127.0.0.1:8080
 On one Docker host, with the binaries built and `litefaasd` listening on `127.0.0.1:8080`:
 
 ```bash
-./litefaasd --addr 127.0.0.1:8080 --data-dir ./data
+./litefaasd --addr 127.0.0.1:8080 --data-dir ./data --insecure
 
 # other shell
 ./lf build examples/web && ./lf deploy examples/web --gateway http://127.0.0.1:8080
@@ -148,10 +148,41 @@ printf '%s\n' '[{"path":"/api","name":"api","strip_prefix":true},{"path":"/","na
 ./lf routes clear --gateway http://127.0.0.1:8080
 ```
 
-## Health and version
+## Hardening (Phase 6)
+
+**Tokens.** Without `--insecure`, `litefaasd` loads or generates `<data-dir>/token` (mode `0600`) and requires `Authorization: Bearer <token>` on `/v1/*`. `/healthz` and `/version` stay open. The CLI picks up `LITEFAAS_TOKEN`, `--token`, the current context, or `~/.litefaas/token`.
 
 ```bash
 ./litefaasd --addr 127.0.0.1:8080 --data-dir ./data
+export LITEFAAS_TOKEN=$(cat ./data/token)
+./lf token --gateway http://127.0.0.1:8080
+./lf list --gateway http://127.0.0.1:8080
+```
+
+**Limits.** `memory` is 16–4096 MiB (default 128). Function `timeout` is 1s–5m (default 30s) and is applied on invoke and on edge routes to `kind: function`. Backends and frontends have no platform per-request timeout. Deploy sets Docker `--memory` and `--memory-swap` to the same value.
+
+**Logs and metrics.**
+
+```bash
+./lf logs hello --tail 100
+./lf logs hello --follow
+curl -s http://127.0.0.1:8080/v1/functions/hello/logs?tail=50
+./lf metrics --gateway http://127.0.0.1:8080
+# GET /v1/metrics → invokes, deploys, edge_requests, errors, resources, uptime_seconds
+```
+
+**stack.yaml (optional).** `lf up` builds and deploys every service, or a single `litefaas.yaml` if no stack file is present.
+
+```bash
+./litefaasd --addr 127.0.0.1:8080 --data-dir ./data --insecure
+./lf up examples --gateway http://127.0.0.1:8080
+# examples/stack.yaml → web, api, orders
+```
+
+## Health and version
+
+```bash
+./litefaasd --addr 127.0.0.1:8080 --data-dir ./data --insecure
 # in another shell
 curl -s http://127.0.0.1:8080/healthz
 curl -s http://127.0.0.1:8080/version
@@ -176,11 +207,13 @@ Base path `/v1`. State is sqlite under `--data-dir` (file `litefaas.db`; default
 | DELETE | `/v1/functions/{name}` | Delete resource and stop its container |
 | POST | `/v1/functions/{name}/deploy` | Deploy/replace the Docker container |
 | POST | `/v1/invoke/{name}` | Sync invoke (kind=function) |
+| GET | `/v1/functions/{name}/logs` | Container log tail (`?tail=100&follow=1`) |
+| GET | `/v1/metrics` | Process counters (invokes, deploys, edge, errors) |
 | GET | `/v1/routes` | Edge routes (override, or derived from triggers) |
 | PUT | `/v1/routes` | Replace the persisted route table |
 | DELETE | `/v1/routes` | Clear the override; derive from manifests again |
 
-Auth: if `LITEFAAS_TOKEN` or `--token` is set, send `Authorization: Bearer <token>`. `/healthz` and `/version` stay open.
+Auth: unless `--insecure`, send `Authorization: Bearer <token>` (`LITEFAAS_TOKEN`, `--token`, or `<data-dir>/token`). `/healthz` and `/version` stay open.
 
 ```bash
 curl -s -X POST http://127.0.0.1:8080/v1/functions \
@@ -219,7 +252,7 @@ Parsed fields for a Go function (RFC-0001 §7): `name`, `kind`, `runtime`, `hand
 
 ## Goals (v0.1)
 
-See GitHub milestone [v0.1.0-alpha](https://github.com/wolvever/litefaas/milestone/1). Phases 0–5 are in tree; Phase 6 is hardening.
+See GitHub milestone [v0.1.0-alpha](https://github.com/wolvever/litefaas/milestone/1). Phases 0–6 close the v0.1.0-alpha surface.
 
 ## Inspiration
 

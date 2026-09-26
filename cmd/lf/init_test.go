@@ -93,6 +93,18 @@ func TestCmdInitDockerfileBackend(t *testing.T) {
 	}
 }
 
+func TestCmdUpRequiresManifest(t *testing.T) {
+	if err := run([]string{"up", t.TempDir()}); err == nil {
+		t.Fatal("expected missing stack/manifest error")
+	}
+}
+
+func TestCmdTokenNone(t *testing.T) {
+	if err := run([]string{"token", "--config-dir", t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCmdInitRequiresRuntime(t *testing.T) {
 	if err := run([]string{"init", "hello"}); err == nil {
 		t.Fatal("expected usage error")

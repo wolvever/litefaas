@@ -49,6 +49,17 @@ func TestLoadStripPrefixTrigger(t *testing.T) {
 	}
 }
 
+func TestLoadRejectsBadMemory(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+	if err := os.WriteFile(path, []byte("name: hello\nruntime: go\nmemory: 8\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Load(path); err == nil {
+		t.Fatal("expected memory error")
+	}
+}
+
 func TestLoadRejectsBadTimeout(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, FileName)

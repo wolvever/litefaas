@@ -63,6 +63,47 @@ func AlwaysOn(k Kind) bool {
 	return k == KindBackend || k == KindFrontend
 }
 
+const (
+	DefaultMemoryMiB = 128
+	MinMemoryMiB     = 16
+	MaxMemoryMiB     = 4096
+	DefaultTimeout   = 30 * time.Second
+	MinTimeout       = time.Second
+	MaxTimeout       = 5 * time.Minute
+)
+
+// EnforceMemory applies the default and rejects out-of-range values (MiB).
+func EnforceMemory(m int) (int, error) {
+	if m == 0 {
+		return DefaultMemoryMiB, nil
+	}
+	if m < MinMemoryMiB || m > MaxMemoryMiB {
+		return 0, fmt.Errorf("memory must be %d–%d MiB, got %d", MinMemoryMiB, MaxMemoryMiB, m)
+	}
+	return m, nil
+}
+
+// EnforceTimeout validates timeout. Functions are capped; backends/frontends keep the value unused.
+func EnforceTimeout(s string, kind Kind) (string, error) {
+	if s == "" {
+		if kind == KindFunction {
+			return DefaultTimeout.String(), nil
+		}
+		return s, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil {
+		return "", fmt.Errorf("timeout %q: %w", s, err)
+	}
+	if d <= 0 {
+		return "", fmt.Errorf("timeout must be positive")
+	}
+	if kind == KindFunction && (d < MinTimeout || d > MaxTimeout) {
+		return "", fmt.Errorf("function timeout must be between %s and %s", MinTimeout, MaxTimeout)
+	}
+	return s, nil
+}
+
 // Trigger is an HTTP path binding from a manifest.
 type Trigger struct {
 	Type        string `json:"type,omitempty" yaml:"type,omitempty"`
