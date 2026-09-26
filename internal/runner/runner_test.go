@@ -88,10 +88,75 @@ func TestDockerDeployCommands(t *testing.T) {
 		t.Fatal("docker run not called")
 	}
 	joined := strings.Join(run, " ")
-	for _, want := range []string{"--name litefaas-hello", "--restart unless-stopped", "--label litefaas.kind=backend", "--memory 64m", "-p 127.0.0.1::8080", "-e GREETING=hi", "-e PORT=8080", "hello:latest"} {
+	for _, want := range []string{"--name litefaas-hello", "--restart unless-stopped", "--label litefaas.kind=backend", "--memory 64m", "--memory-swap 64m", "-p 127.0.0.1::8080", "-e GREETING=hi", "-e PORT=8080", "hello:latest"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("run missing %q in %v", want, run)
 		}
+	}
+}
+
+func TestDockerFunctionRestartAndLogs(t *testing.T) {
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(health.Close)
+	hostPort := strings.TrimPrefix(health.URL, "http://127.0.0.1:")
+
+	origOut, origExec := dockercli.Output, dockercli.Exec
+	t.Cleanup(func() {
+		dockercli.Output = origOut
+		dockercli.Exec = origExec
+	})
+
+	var run []string
+	var logArgs []string
+	dockercli.Output = func(_ context.Context, name string, args ...string) (string, error) {
+		if name != "docker" {
+			t.Fatalf("name = %s", name)
+		}
+		switch args[0] {
+		case "version":
+			return "27.0.0", nil
+		case "rm":
+			return "", nil
+		case "run":
+			run = append([]string{}, args...)
+			return "abc123", nil
+		case "port":
+			return "8080/tcp -> 127.0.0.1:" + hostPort, nil
+		default:
+			t.Fatalf("unexpected %v", args)
+		}
+		return "", nil
+	}
+	dockercli.Exec = func(_ context.Context, _, _ io.Writer, name string, args ...string) error {
+		if name != "docker" {
+			t.Fatalf("name = %s", name)
+		}
+		logArgs = append([]string{}, args...)
+		return nil
+	}
+
+	d := NewDocker()
+	if _, err := d.Deploy(context.Background(), types.Resource{
+		Name:  "hello",
+		Kind:  types.KindFunction,
+		Image: "hello:latest",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(run, " ")
+	if !strings.Contains(joined, "--restart no") {
+		t.Fatalf("function run = %v", run)
+	}
+
+	var buf strings.Builder
+	if err := d.Logs(context.Background(), "hello", LogsOptions{Follow: true, Tail: 20}, &buf); err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"logs", "--timestamps", "--follow", "--tail", "20", "litefaas-hello"}
+	if strings.Join(logArgs, " ") != strings.Join(want, " ") {
+		t.Fatalf("logs args = %v", logArgs)
 	}
 }
 

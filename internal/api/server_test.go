@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/wolvever/litefaas/internal/runner"
 	"github.com/wolvever/litefaas/internal/store"
@@ -258,5 +259,144 @@ func TestPutRoutesOverride(t *testing.T) {
 	srv.ServeHTTP(rec, req)
 	if rec.Code != http.StatusNoContent {
 		t.Fatalf("clear routes status = %d", rec.Code)
+	}
+}
+
+func TestLogsMetricsAuthAndLimits(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	fake := runner.NewFake()
+	fake.LogsText["hello"] = "2026-01-01T00:00:00Z hello from container\n"
+	srv := New(Options{Store: st, Token: "secret", Runner: fake})
+	t.Cleanup(srv.Close)
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader([]byte(`{"name":"hello","kind":"function","runtime":"go","memory":1}`)))
+	req.Header.Set("X-Litefaas-Token", "secret")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("memory")) {
+		t.Fatalf("low memory = %d %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader([]byte(`{"name":"hello","kind":"function","runtime":"go","image":"hello:latest","timeout":"10m"}`)))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("timeout")) {
+		t.Fatalf("long timeout = %d %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader([]byte(`{"name":"hello","kind":"function","runtime":"go","image":"hello:latest","memory":64,"timeout":"5s"}`)))
+	req.Header.Set("X-Litefaas-Token", "secret")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/functions/hello/logs?tail=50", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte("hello from container")) {
+		t.Fatalf("logs = %d %s", rec.Code, rec.Body.String())
+	}
+	if ct := rec.Header().Get("Content-Type"); !bytes.Contains([]byte(ct), []byte("text/plain")) {
+		t.Fatalf("logs content-type = %s", ct)
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/metrics", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("metrics status = %d", rec.Code)
+	}
+	var snap snapshot
+	if err := json.NewDecoder(rec.Body).Decode(&snap); err != nil {
+		t.Fatal(err)
+	}
+	if !snap.Auth || snap.Resources != 1 || snap.Requests < 1 {
+		t.Fatalf("metrics = %+v", snap)
+	}
+}
+
+func TestIdleReaperStopsFunction(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	fake := runner.NewFake()
+	srv := New(Options{
+		Store:     st,
+		Runner:    fake,
+		IdleTTL:   40 * time.Millisecond,
+		IdleEvery: 15 * time.Millisecond,
+	})
+	t.Cleanup(srv.Close)
+
+	body := []byte(`{"name":"hello","kind":"function","runtime":"go","image":"hello:latest"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d %s", rec.Code, rec.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodPost, "/v1/functions/hello/deploy", bytes.NewReader([]byte(`{}`)))
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("deploy = %d %s", rec.Code, rec.Body.String())
+	}
+
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		if len(fake.Removed) > 0 && fake.Removed[len(fake.Removed)-1] == "hello" {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("idle reaper did not stop function; removed=%v", fake.Removed)
+}
+
+func TestInvokeWakesStoppedFunction(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	fn := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{"ok":true}`))
+	}))
+	t.Cleanup(fn.Close)
+
+	fake := runner.NewFake()
+	fake.Prefer["hello"] = fn.URL
+	srv := New(Options{Store: st, Runner: fake})
+	t.Cleanup(srv.Close)
+
+	body := []byte(`{"name":"hello","kind":"function","runtime":"go","image":"hello:latest"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create = %d", rec.Code)
+	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/invoke/hello", bytes.NewReader([]byte(`{}`)))
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`ok`)) {
+		t.Fatalf("wake invoke = %d %s", rec.Code, rec.Body.String())
+	}
+	if len(fake.Deploys) == 0 {
+		t.Fatal("expected redeploy on wake")
 	}
 }

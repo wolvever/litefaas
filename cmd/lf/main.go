@@ -10,6 +10,7 @@ import (
 
 	"github.com/wolvever/litefaas/internal/client"
 	"github.com/wolvever/litefaas/internal/config"
+	"github.com/wolvever/litefaas/internal/token"
 	"github.com/wolvever/litefaas/internal/version"
 )
 
@@ -50,6 +51,12 @@ func run(args []string) error {
 		return cmdContext(args[1:])
 	case "routes", "route":
 		return cmdRoutes(args[1:])
+	case "logs":
+		return cmdLogs(args[1:])
+	case "metrics":
+		return cmdMetrics(args[1:])
+	case "token":
+		return cmdToken(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q\n\nRun 'lf help' for usage", args[0])
 	}
@@ -67,13 +74,17 @@ Usage:
   lf invoke <name> [-d BODY] POST /v1/invoke/{name}
   lf list                    List resources
   lf delete <name>           Delete a resource (and its container)
+  lf logs <name> [-f]        Stream container logs (GET /v1/functions/{name}/logs)
   lf routes                  List the edge route table (GET /v1/routes)
   lf routes set <file.json>  Replace the route table (PUT /v1/routes)
   lf routes clear            Drop the override; derive routes from manifests
+  lf metrics                 Basic control-plane counters (GET /v1/metrics)
+  lf token                   Print the resolved bearer token
   lf context                 Show / list / create / use CLI contexts
   lf help                    Show this help
 
 The daemon (litefaasd) exposes GET /healthz and the /v1 resource API.
+Auth: Authorization: Bearer <token> (see LITEFAAS_TOKEN / --token / ~/.litefaas/token).
 See docs/RFC-0001-architecture.md.
 `)
 }
@@ -136,13 +147,11 @@ func resolveClient(gatewayFlag, tokenFlag, configDir string) (*client.Client, er
 	if gatewayFlag != "" {
 		gw = gatewayFlag
 	}
-	tok := ctx.Token
-	if v := os.Getenv("LITEFAAS_TOKEN"); v != "" {
-		tok = v
+	cfgDir := configDir
+	if cfgDir == "" {
+		cfgDir = config.DefaultDir()
 	}
-	if tokenFlag != "" {
-		tok = tokenFlag
-	}
+	tok := token.ResolveClient(tokenFlag, os.Getenv("LITEFAAS_TOKEN"), ctx.Token, cfgDir)
 	return client.New(gw, tok), nil
 }
 

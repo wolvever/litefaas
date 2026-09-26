@@ -2,11 +2,11 @@
 
 Poor man's serverless: a minimal **CLI + API** control plane to build and deploy **functions**, **backends** (Java / Go / Python), and a **lightweight frontend**, self-hosted on a single node.
 
-> Status: RFC accepted — Phases 0–5 are in tree. Functions, always-on backends (including `runtime: dockerfile`), a static frontend, and a persisted path route table run on one Docker host.
+> Status: RFC accepted — Phases 0–6 are in tree. Functions, always-on backends (including `runtime: dockerfile`), a static frontend, a persisted path route table, bearer tokens, log streaming, and optional `stack.yaml` run on one Docker host.
 
 ## Docs
 
-- **[RFC-0001: Architecture](docs/RFC-0001-architecture.md)** — design, manifests (`litefaas.yaml`), API, phases
+- **[RFC-0001: Architecture](docs/RFC-0001-architecture.md)** — design, manifests (`litefaas.yaml` / `stack.yaml`), API, phases
 - Kinds: `function` | `backend` | `frontend`
 - Runtimes: `go` | `java` | `python` | `dockerfile` | `static`
 - Presets: `spring-boot` (Java), `fastapi` (Python)
@@ -35,8 +35,10 @@ This is the Phase 2 demo. You need the Go toolchain, a local Docker daemon, and 
 **Terminal 1 — start the daemon**
 
 ```bash
-./litefaasd --addr 127.0.0.1:8080 --data-dir ./data
+./litefaasd --addr 127.0.0.1:8080 --data-dir ./data --no-auth
 ```
+
+`--no-auth` keeps the local walkthrough open. Omit it and litefaasd writes a bearer token to `./data/token` (see [Auth tokens](#auth-tokens)).
 
 **Terminal 2 — init, build, deploy, invoke**
 
@@ -46,6 +48,7 @@ cd hello
 ../lf build
 ../lf deploy --gateway http://127.0.0.1:8080
 ../lf invoke hello -d '{"name":"litefaas"}'
+../lf logs hello --tail 50
 ```
 
 Expected invoke body (pretty-printed here):
@@ -69,7 +72,8 @@ What each step does:
 | `lf init` | local files | Copies `templates/runtimes/go/http/` (handler, Dockerfile, `litefaas.yaml`) |
 | `lf build` | local Docker | `docker build -t <image> .` (default image `hello:latest`; no registry) |
 | `lf deploy` | API + Docker | `POST /v1/functions` (or `PUT` if it exists) then `POST /v1/functions/{name}/deploy` — create/replace container `litefaas-<name>`, `PORT`, memory, env; publish `127.0.0.1:<ephemeral>→$PORT` |
-| `lf invoke` | API | `POST /v1/invoke/{name}` reverse-proxies to the container |
+| `lf invoke` | API | `POST /v1/invoke/{name}` reverse-proxies to the container (wakes a stopped function) |
+| `lf logs` | API + Docker | `GET /v1/functions/{name}/logs` tails `docker logs` |
 
 Re-run `lf build && lf deploy` after editing `handler.go`. `lf delete hello` removes the resource and stops the container.
 
@@ -102,14 +106,15 @@ cd hello-py && ../lf build && ../lf deploy --gateway http://127.0.0.1:8080
 On one Docker host, with the binaries built and `litefaasd` listening on `127.0.0.1:8080`:
 
 ```bash
-./litefaasd --addr 127.0.0.1:8080 --data-dir ./data
+./litefaasd --addr 127.0.0.1:8080 --data-dir ./data --no-auth
 
-# other shell
-./lf build examples/web && ./lf deploy examples/web --gateway http://127.0.0.1:8080
-./lf build examples/api && ./lf deploy examples/api --gateway http://127.0.0.1:8080
+# other shell — one stack.yaml, or the per-service dirs
+./lf build examples && ./lf deploy examples --gateway http://127.0.0.1:8080
+# same as: lf build/deploy examples/web, examples/api, examples/orders
 
 curl -s http://127.0.0.1:8080/          # static index.html (SPA fallback)
 curl -s http://127.0.0.1:8080/api/      # python backend {"ok":true,"service":"api"}
+curl -s http://127.0.0.1:8080/orders/   # dockerfile backend
 ```
 
 `kind: frontend` + `runtime: static` is nginx serving files (`try_files` → `index.html`). Triggers become the edge route table: `/` → web, `/api` → api (`strip_prefix: true`). Control-plane paths (`/healthz`, `/version`, `/v1/*`) stay on litefaasd.
@@ -148,10 +153,80 @@ printf '%s\n' '[{"path":"/api","name":"api","strip_prefix":true},{"path":"/","na
 ./lf routes clear --gateway http://127.0.0.1:8080
 ```
 
-## Health and version
+## Auth tokens (Phase 6)
+
+Control-plane routes (`/v1/*`) take a **shared bearer token**. `/healthz`, `/version`, and edge routes stay open.
+
+Resolution on the daemon:
+
+1. `--token` or `LITEFAAS_TOKEN`
+2. else `{data-dir}/token` (created on first start, mode `0600`)
+3. `--no-auth` disables the check (local demo only)
+
+`lf` sends `Authorization: Bearer <token>`. Resolution: `--token` > `LITEFAAS_TOKEN` > context `token:` > `{config-dir}/token` (default `~/.litefaas/token`). `X-Litefaas-Token` is also accepted.
 
 ```bash
 ./litefaasd --addr 127.0.0.1:8080 --data-dir ./data
+export LITEFAAS_TOKEN=$(cat ./data/token)
+./lf token --config-dir ./data          # token=… source=file:./data/token
+./lf list --gateway http://127.0.0.1:8080 --token "$LITEFAAS_TOKEN"
+curl -s -H "Authorization: Bearer $LITEFAAS_TOKEN" http://127.0.0.1:8080/v1/functions
+# or store it on a context
+./lf context create local --gateway http://127.0.0.1:8080 --token "$LITEFAAS_TOKEN"
+```
+
+If daemon and CLI share `~/.litefaas` (the default `--data-dir` / `--config-dir`), `lf` picks up the file automatically.
+
+## Logs and metrics
+
+```bash
+./lf logs hello --tail 100
+./lf logs hello -f --gateway http://127.0.0.1:8080
+curl -s -H "Authorization: Bearer $LITEFAAS_TOKEN" \
+  'http://127.0.0.1:8080/v1/functions/hello/logs?tail=100'
+./lf metrics --gateway http://127.0.0.1:8080
+```
+
+`GET /v1/functions/{name}/logs?follow=1&tail=100` streams `docker logs --timestamps` (plain text). `GET /v1/metrics` is a small JSON snapshot: request/invoke/deploy/error counters, resource count, uptime, `auth`, `idle_ttl`.
+
+## Limits and idle functions
+
+`memory` is MiB (16–8192; default 128). Docker gets `--memory` and `--memory-swap` set to the same value (no extra swap). `timeout` is functions-only, max `5m` (default `30s`), enforced on `POST /v1/invoke/{name}`.
+
+Functions are `--restart no`. After `--idle-ttl` (default `5m`; `0` disables) without invoke/deploy, litefaasd stops the container. The next invoke redeploys it from the stored image. Backends and frontends stay always-on (`--restart unless-stopped`).
+
+## stack.yaml
+
+A directory with `stack.yaml` (and no `litefaas.yaml`) is a multi-service unit. `lf build` / `lf deploy` walk `services`. Handler paths are relative to the stack file. A per-service `litefaas.yaml` in the same directory still wins.
+
+```yaml
+services:
+  web:
+    kind: frontend
+    runtime: static
+    handler: ./web
+    image: web:latest
+    triggers:
+      - type: http
+        path: /
+        spa: true
+  api:
+    kind: backend
+    runtime: python
+    handler: ./api
+    image: api:latest
+    triggers:
+      - type: http
+        path: /api
+        strip_prefix: true
+```
+
+`services` may also be a list of objects with `name:`. See `examples/stack.yaml`. This is **not** Phase 7 zero-config stack detection.
+
+## Health and version
+
+```bash
+./litefaasd --addr 127.0.0.1:8080 --data-dir ./data --no-auth
 # in another shell
 curl -s http://127.0.0.1:8080/healthz
 curl -s http://127.0.0.1:8080/version
@@ -175,16 +250,19 @@ Base path `/v1`. State is sqlite under `--data-dir` (file `litefaas.db`; default
 | GET | `/v1/functions/{name}` | Get (includes revisions) |
 | DELETE | `/v1/functions/{name}` | Delete resource and stop its container |
 | POST | `/v1/functions/{name}/deploy` | Deploy/replace the Docker container |
-| POST | `/v1/invoke/{name}` | Sync invoke (kind=function) |
+| POST | `/v1/invoke/{name}` | Sync invoke (kind=function; wakes if idle-stopped) |
+| GET | `/v1/functions/{name}/logs` | Log tail (`follow`, `tail` query params) |
+| GET | `/v1/metrics` | Basic counters |
 | GET | `/v1/routes` | Edge routes (override, or derived from triggers) |
 | PUT | `/v1/routes` | Replace the persisted route table |
 | DELETE | `/v1/routes` | Clear the override; derive from manifests again |
 
-Auth: if `LITEFAAS_TOKEN` or `--token` is set, send `Authorization: Bearer <token>`. `/healthz` and `/version` stay open.
+Auth: `Authorization: Bearer <token>` or `X-Litefaas-Token`. `/healthz` and `/version` stay open. See [Auth tokens](#auth-tokens).
 
 ```bash
 curl -s -X POST http://127.0.0.1:8080/v1/functions \
   -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $LITEFAAS_TOKEN" \
   -d '{"name":"orders-api","kind":"backend","runtime":"java","image":"localhost:5000/orders-api:0.1.0"}'
 ./lf list --gateway http://127.0.0.1:8080
 ./lf delete orders-api --gateway http://127.0.0.1:8080
@@ -215,11 +293,11 @@ Docker-required smoke (same as the demo above): `litefaasd` running, then `lf in
 
 ## Manifest (`litefaas.yaml`)
 
-Parsed fields for a Go function (RFC-0001 §7): `name`, `kind`, `runtime`, `handler`, `image`, `port`, `memory` (MiB), `timeout`, `health`, `env`.
+Parsed fields for a Go function (RFC-0001 §7): `name`, `kind`, `runtime`, `handler`, `image`, `port`, `memory` (MiB, 16–8192), `timeout` (max 5m), `health`, `env`. Multi-service: `stack.yaml` (see above).
 
 ## Goals (v0.1)
 
-See GitHub milestone [v0.1.0-alpha](https://github.com/wolvever/litefaas/milestone/1). Phases 0–5 are in tree; Phase 6 is hardening.
+See GitHub milestone [v0.1.0-alpha](https://github.com/wolvever/litefaas/milestone/1). Phases 0–6 (v0.1.0-alpha) are in tree. Phase 7 zero-config stack detection is post-v0.1.
 
 ## Inspiration
 

@@ -3,10 +3,13 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -94,6 +97,77 @@ func (c *Client) PutRoutes(routes []proxy.Route) ([]proxy.Route, error) {
 
 func (c *Client) ClearRoutes() error {
 	return c.do(http.MethodDelete, "/v1/routes", nil, nil)
+}
+
+type Metrics struct {
+	Started       time.Time `json:"started"`
+	UptimeSeconds int64     `json:"uptime_seconds"`
+	Requests      int64     `json:"requests"`
+	Invokes       int64     `json:"invokes"`
+	Deploys       int64     `json:"deploys"`
+	Errors        int64     `json:"errors"`
+	Resources     int       `json:"resources"`
+	Auth          bool      `json:"auth"`
+	IdleTTL       string    `json:"idle_ttl,omitempty"`
+}
+
+func (c *Client) Metrics() (Metrics, error) {
+	var out Metrics
+	if err := c.do(http.MethodGet, "/v1/metrics", nil, &out); err != nil {
+		return Metrics{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) Logs(ctx context.Context, name string, follow bool, tail int, w io.Writer) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	q := url.Values{}
+	if follow {
+		q.Set("follow", "1")
+	}
+	if tail > 0 {
+		q.Set("tail", strconv.Itoa(tail))
+	}
+	path := "/v1/functions/" + name + "/logs"
+	if enc := q.Encode(); enc != "" {
+		path += "?" + enc
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.Gateway+path, nil)
+	if err != nil {
+		return err
+	}
+	if c.Token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.Token)
+	}
+	httpClient := c.HTTPClient
+	if follow {
+		httpClient = &http.Client{}
+		if c.HTTPClient != nil && c.HTTPClient.Transport != nil {
+			httpClient.Transport = c.HTTPClient.Transport
+		}
+	} else if httpClient == nil {
+		httpClient = &http.Client{Timeout: 60 * time.Second}
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("gateway %s: %w", c.Gateway, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		raw, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+		msg := strings.TrimSpace(string(raw))
+		if msg == "" {
+			msg = resp.Status
+		}
+		return fmt.Errorf("%s %s: %s", http.MethodGet, "/v1/functions/"+name+"/logs", msg)
+	}
+	if w == nil {
+		w = io.Discard
+	}
+	_, err = io.Copy(w, resp.Body)
+	return err
 }
 
 func (c *Client) Deploy(name, image string) (types.Revision, error) {

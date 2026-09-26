@@ -3,9 +3,21 @@ package main
 import (
 	"flag"
 	"io"
+	"os"
+	"path/filepath"
 	"reflect"
 	"testing"
 )
+
+func TestCmdTokenFromFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "token"), []byte("filetok\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"token", "--config-dir", dir}); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestParseMixedFlagsAfterName(t *testing.T) {
 	fs := flag.NewFlagSet("t", flag.ContinueOnError)

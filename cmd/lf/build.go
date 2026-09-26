@@ -14,11 +14,13 @@ func cmdBuild(args []string) error {
 		dir = args[0]
 	}
 	fmt.Fprintf(os.Stderr, "building %s\n", dir)
-	res, err := builder.Build(context.Background(), dir, os.Stdout, os.Stderr)
+	results, err := builder.BuildStack(context.Background(), dir, os.Stdout, os.Stderr)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("built %s\n", res.Image)
+	for _, res := range results {
+		fmt.Printf("built %s\n", res.Image)
+	}
 	return nil
 }
 

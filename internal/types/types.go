@@ -6,6 +6,15 @@ import (
 	"time"
 )
 
+const (
+	DefaultMemoryMiB = 128
+	MinMemoryMiB     = 16
+	MaxMemoryMiB     = 8192
+	DefaultTimeout   = 30 * time.Second
+	MaxTimeout       = 5 * time.Minute
+	DefaultIdleTTL   = 5 * time.Minute
+)
+
 // Kind is a litefaas.yaml kind.
 type Kind string
 
