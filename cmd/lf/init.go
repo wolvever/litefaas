@@ -12,8 +12,8 @@ import (
 func cmdInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	runtime := fs.String("runtime", "", "runtime: go|java|python|static")
-	kind := fs.String("kind", "", "kind: function|backend|frontend (default function; frontend for static)")
+	runtime := fs.String("runtime", "", "runtime: go|java|python|dockerfile|static")
+	kind := fs.String("kind", "", "kind: function|backend|frontend (default function; backend for dockerfile; frontend for static)")
 	preset := fs.String("preset", "", "optional preset: spring-boot (java) or fastapi (python)")
 	force := fs.Bool("force", false, "overwrite files in an existing directory")
 	dir := fs.String("dir", ".", "parent directory for the new project")
@@ -22,7 +22,7 @@ func cmdInit(args []string) error {
 		return err
 	}
 	if len(rest) < 1 || *runtime == "" {
-		return fmt.Errorf("usage: lf init <name> --runtime go|java|python|static [--preset spring-boot|fastapi] [--kind function|backend|frontend]")
+		return fmt.Errorf("usage: lf init <name> --runtime go|java|python|dockerfile|static [--preset spring-boot|fastapi] [--kind function|backend|frontend]")
 	}
 	rt, err := types.ParseRuntime(*runtime)
 	if err != nil {
@@ -30,11 +30,7 @@ func cmdInit(args []string) error {
 	}
 	kindVal := *kind
 	if kindVal == "" {
-		if rt == types.RuntimeStatic {
-			kindVal = string(types.KindFrontend)
-		} else {
-			kindVal = string(types.KindFunction)
-		}
+		kindVal = string(types.DefaultKind(rt))
 	}
 	k, err := types.ParseKind(kindVal)
 	if err != nil {
@@ -56,6 +52,10 @@ func cmdInit(args []string) error {
 	} else {
 		fmt.Printf("created %s (runtime=%s kind=%s)\n", dest, rt, k)
 	}
-	fmt.Printf("next: cd %s && lf build && lf deploy && lf invoke %s -d '{\"name\":\"litefaas\"}'\n", dest, rest[0])
+	if k == types.KindFunction {
+		fmt.Printf("next: cd %s && lf build && lf deploy && lf invoke %s -d '{\"name\":\"litefaas\"}'\n", dest, rest[0])
+	} else {
+		fmt.Printf("next: cd %s && lf build && lf deploy\n", dest)
+	}
 	return nil
 }

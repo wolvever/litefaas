@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/wolvever/litefaas/internal/api"
+	"github.com/wolvever/litefaas/internal/proxy"
 	"github.com/wolvever/litefaas/internal/runner"
 	"github.com/wolvever/litefaas/internal/store"
 	"github.com/wolvever/litefaas/internal/types"
@@ -47,6 +48,17 @@ func TestClientCRUDDeploy(t *testing.T) {
 		t.Fatalf("list = %v %v", list, err)
 	}
 	if err := c.Delete("hello"); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := c.PutRoutes([]proxy.Route{{Path: "/orders", Name: "orders", StripPrefix: true}}); err != nil {
+		t.Fatal(err)
+	}
+	rts, err := c.Routes()
+	if err != nil || len(rts) != 1 || rts[0].Path != "/orders" {
+		t.Fatalf("routes = %+v err=%v", rts, err)
+	}
+	if err := c.ClearRoutes(); err != nil {
 		t.Fatal(err)
 	}
 }

@@ -2,13 +2,13 @@
 
 Poor man's serverless: a minimal **CLI + API** control plane to build and deploy **functions**, **backends** (Java / Go / Python), and a **lightweight frontend**, self-hosted on a single node.
 
-> Status: RFC accepted — Phases 0–4 are in tree. Functions plus a static frontend and path-routed API demo run on one Docker host.
+> Status: RFC accepted — Phases 0–5 are in tree. Functions, always-on backends (including `runtime: dockerfile`), a static frontend, and a persisted path route table run on one Docker host.
 
 ## Docs
 
 - **[RFC-0001: Architecture](docs/RFC-0001-architecture.md)** — design, manifests (`litefaas.yaml`), API, phases
 - Kinds: `function` | `backend` | `frontend`
-- Runtimes: `go` | `java` | `python` | `static` · `dockerfile` (Phase 5)
+- Runtimes: `go` | `java` | `python` | `dockerfile` | `static`
 - Presets: `spring-boot` (Java), `fastapi` (Python)
 
 ## Build
@@ -95,6 +95,7 @@ cd hello-py && ../lf build && ../lf deploy --gateway http://127.0.0.1:8080
 | `python` | `templates/runtimes/python/http` (stdlib `http.server`) |
 | `python --preset fastapi` | `templates/presets/python/fastapi` |
 | `static` (`--kind frontend`) | `templates/frontend/static` (nginx + SPA `try_files`) |
+| `dockerfile` (`--kind backend` default) | `templates/meta/dockerfile` (replace the Dockerfile) |
 
 ## Demo: static frontend + API (Phase 4)
 
@@ -119,6 +120,32 @@ Or scaffold your own:
 ./lf init web --runtime static --kind frontend
 ./lf init api --runtime python --kind backend
 # set api/litefaas.yaml trigger path /api and strip_prefix: true
+```
+
+## Backends, dockerfile, and routes (Phase 5)
+
+`kind: backend` is always-on: Docker `--restart unless-stopped`, no platform per-request timeout, no scale-to-zero. `runtime: dockerfile` is the escape hatch for anything else (Django, Next SSR, …) — default kind is `backend`. Triggers become the edge table; `strip_prefix: true` forwards `/orders/x` as `/x` and sets `X-Forwarded-Prefix`.
+
+```bash
+./lf init orders --runtime dockerfile
+# created with kind=backend, trigger path /orders, strip_prefix: true
+cd orders && ../lf build && ../lf deploy --gateway http://127.0.0.1:8080
+
+# or the in-tree example
+./lf build examples/orders && ./lf deploy examples/orders --gateway http://127.0.0.1:8080
+curl -s http://127.0.0.1:8080/orders/
+# {"ok":true,"service":"orders","path":"/"}
+
+./lf routes --gateway http://127.0.0.1:8080
+```
+
+`GET /v1/routes` is derived from each resource's HTTP triggers. `PUT /v1/routes` replaces that table (persisted in sqlite); `DELETE /v1/routes` (or `lf routes clear`) drops the override.
+
+```bash
+# replace the table (path + name + strip_prefix + spa)
+printf '%s\n' '[{"path":"/api","name":"api","strip_prefix":true},{"path":"/","name":"web","spa":true}]' > /tmp/routes.json
+./lf routes set /tmp/routes.json --gateway http://127.0.0.1:8080
+./lf routes clear --gateway http://127.0.0.1:8080
 ```
 
 ## Health and version
@@ -149,7 +176,9 @@ Base path `/v1`. State is sqlite under `--data-dir` (file `litefaas.db`; default
 | DELETE | `/v1/functions/{name}` | Delete resource and stop its container |
 | POST | `/v1/functions/{name}/deploy` | Deploy/replace the Docker container |
 | POST | `/v1/invoke/{name}` | Sync invoke (kind=function) |
-| GET | `/v1/routes` | Edge routes derived from deployed triggers |
+| GET | `/v1/routes` | Edge routes (override, or derived from triggers) |
+| PUT | `/v1/routes` | Replace the persisted route table |
+| DELETE | `/v1/routes` | Clear the override; derive from manifests again |
 
 Auth: if `LITEFAAS_TOKEN` or `--token` is set, send `Authorization: Bearer <token>`. `/healthz` and `/version` stay open.
 
@@ -190,7 +219,7 @@ Parsed fields for a Go function (RFC-0001 §7): `name`, `kind`, `runtime`, `hand
 
 ## Goals (v0.1)
 
-See GitHub milestone [v0.1.0-alpha](https://github.com/wolvever/litefaas/milestone/1). Phases 0–4 are the first public alpha.
+See GitHub milestone [v0.1.0-alpha](https://github.com/wolvever/litefaas/milestone/1). Phases 0–5 are in tree; Phase 6 is hardening.
 
 ## Inspiration
 

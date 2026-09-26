@@ -45,8 +45,10 @@ func templateRoot(rt types.Runtime, preset string) (fs.FS, string, error) {
 		return templates.Runtimes, "runtimes/python/http", nil
 	case types.RuntimeStatic:
 		return templates.Frontend, "frontend/static", nil
+	case types.RuntimeDockerfile:
+		return templates.Meta, "meta/dockerfile", nil
 	default:
-		return nil, "", fmt.Errorf("runtime %q is not available yet (dockerfile comes in Phase 5)", rt)
+		return nil, "", fmt.Errorf("unknown runtime %q (want go|java|python|dockerfile|static)", rt)
 	}
 }
 
@@ -60,11 +62,7 @@ func Init(opts Options) (string, error) {
 	}
 	kind := opts.Kind
 	if kind == "" {
-		if opts.Runtime == types.RuntimeStatic {
-			kind = types.KindFrontend
-		} else {
-			kind = types.KindFunction
-		}
+		kind = types.DefaultKind(opts.Runtime)
 	}
 	if _, err := types.ParseKind(string(kind)); err != nil {
 		return "", err

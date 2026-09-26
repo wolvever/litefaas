@@ -48,6 +48,8 @@ func run(args []string) error {
 		return cmdDelete(args[1:])
 	case "context":
 		return cmdContext(args[1:])
+	case "routes", "route":
+		return cmdRoutes(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q\n\nRun 'lf help' for usage", args[0])
 	}
@@ -59,12 +61,15 @@ func printUsage(w io.Writer) {
 Usage:
   lf version                 Print CLI version
   lf health                  GET /healthz on the current gateway
-  lf init <name> --runtime go|java|python|static [--preset ...] [--kind function|backend|frontend]
+  lf init <name> --runtime go|java|python|dockerfile|static [--preset ...] [--kind function|backend|frontend]
   lf build [path]            docker build the litefaas.yaml image
   lf deploy [path]           Register + deploy the container via the API
   lf invoke <name> [-d BODY] POST /v1/invoke/{name}
   lf list                    List resources
   lf delete <name>           Delete a resource (and its container)
+  lf routes                  List the edge route table (GET /v1/routes)
+  lf routes set <file.json>  Replace the route table (PUT /v1/routes)
+  lf routes clear            Drop the override; derive routes from manifests
   lf context                 Show / list / create / use CLI contexts
   lf help                    Show this help
 

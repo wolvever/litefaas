@@ -33,6 +33,22 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
+func TestLoadStripPrefixTrigger(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+	raw := "name: orders\nkind: backend\nruntime: dockerfile\ntriggers:\n  - type: http\n    path: /orders\n    strip_prefix: true\n"
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(m.Triggers) != 1 || m.Triggers[0].Path != "/orders" || !m.Triggers[0].StripPrefix {
+		t.Fatalf("triggers = %+v", m.Triggers)
+	}
+}
+
 func TestLoadRejectsBadTimeout(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, FileName)

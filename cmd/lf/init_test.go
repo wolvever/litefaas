@@ -75,6 +75,24 @@ func TestCmdInitStaticFrontend(t *testing.T) {
 	}
 }
 
+func TestCmdInitDockerfileBackend(t *testing.T) {
+	parent := t.TempDir()
+	if err := run([]string{"init", "orders", "--runtime", "dockerfile", "--dir", parent}); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(parent, "orders")
+	m, _, err := manifest.LoadDir(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Runtime != "dockerfile" || m.Kind != "backend" {
+		t.Fatalf("manifest = %+v", m)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "Dockerfile")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCmdInitRequiresRuntime(t *testing.T) {
 	if err := run([]string{"init", "hello"}); err == nil {
 		t.Fatal("expected usage error")

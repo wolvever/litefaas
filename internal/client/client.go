@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/wolvever/litefaas/internal/proxy"
 	"github.com/wolvever/litefaas/internal/types"
 )
 
@@ -64,6 +65,35 @@ func (c *Client) Update(r types.Resource) (types.Resource, error) {
 
 func (c *Client) Delete(name string) error {
 	return c.do(http.MethodDelete, "/v1/functions/"+name, nil, nil)
+}
+
+func (c *Client) Routes() ([]proxy.Route, error) {
+	var out []proxy.Route
+	if err := c.do(http.MethodGet, "/v1/routes", nil, &out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []proxy.Route{}
+	}
+	return out, nil
+}
+
+func (c *Client) PutRoutes(routes []proxy.Route) ([]proxy.Route, error) {
+	if routes == nil {
+		routes = []proxy.Route{}
+	}
+	var out []proxy.Route
+	if err := c.do(http.MethodPut, "/v1/routes", routes, &out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []proxy.Route{}
+	}
+	return out, nil
+}
+
+func (c *Client) ClearRoutes() error {
+	return c.do(http.MethodDelete, "/v1/routes", nil, nil)
 }
 
 func (c *Client) Deploy(name, image string) (types.Revision, error) {

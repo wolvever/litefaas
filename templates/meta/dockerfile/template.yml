@@ -1,0 +1,4 @@
+name: dockerfile
+runtime: dockerfile
+kind: backend
+description: Dockerfile escape hatch (RFC-0001 §8). Replace the Dockerfile; bind 0.0.0.0:$PORT and GET /healthz.

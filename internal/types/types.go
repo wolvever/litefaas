@@ -46,18 +46,35 @@ func ParseRuntime(s string) (Runtime, error) {
 	}
 }
 
+// DefaultKind is the init default when --kind is omitted (RFC-0001 §8 / §15).
+func DefaultKind(rt Runtime) Kind {
+	switch rt {
+	case RuntimeStatic:
+		return KindFrontend
+	case RuntimeDockerfile:
+		return KindBackend
+	default:
+		return KindFunction
+	}
+}
+
+// AlwaysOn is true for backends and frontends (no scale-to-zero).
+func AlwaysOn(k Kind) bool {
+	return k == KindBackend || k == KindFrontend
+}
+
 // Trigger is an HTTP path binding from a manifest.
 type Trigger struct {
-	Type        string `json:"type,omitempty"`
-	Path        string `json:"path,omitempty"`
-	StripPrefix bool   `json:"strip_prefix,omitempty"`
-	SPA         bool   `json:"spa,omitempty"`
+	Type        string `json:"type,omitempty" yaml:"type,omitempty"`
+	Path        string `json:"path,omitempty" yaml:"path,omitempty"`
+	StripPrefix bool   `json:"strip_prefix,omitempty" yaml:"strip_prefix,omitempty"`
+	SPA         bool   `json:"spa,omitempty" yaml:"spa,omitempty"`
 }
 
 // Build is an optional pre-image build step.
 type Build struct {
-	Command []string `json:"command,omitempty"`
-	Output  string   `json:"output,omitempty"`
+	Command []string `json:"command,omitempty" yaml:"command,omitempty"`
+	Output  string   `json:"output,omitempty" yaml:"output,omitempty"`
 }
 
 // Resource is control-plane metadata for a function, backend, or frontend.
