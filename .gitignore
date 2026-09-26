@@ -1,0 +1,10 @@
+/lf
+/litefaasd
+*.exe
+*.test
+/data/
+dist/
+.litefaas/
+*.db
+*.sqlite
+*.sqlite3
