@@ -1,0 +1,5 @@
+name: java-http
+runtime: java
+kind: function
+language: java
+description: Generic Java HTTP function (com.sun.net.httpserver, binds 0.0.0.0:$PORT)

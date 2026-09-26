@@ -1,0 +1,10 @@
+name: {{name}}
+kind: {{kind}}
+runtime: python
+preset: fastapi
+handler: .
+image: {{name}}:latest
+port: 8080
+memory: 128
+timeout: 30s
+health: /healthz

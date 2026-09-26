@@ -2,13 +2,14 @@
 
 Poor man's serverless: a minimal **CLI + API** control plane to build and deploy **functions**, **backends** (Java / Go / Python), and a **lightweight frontend**, self-hosted on a single node.
 
-> Status: RFC accepted — Phases 0–2 are in tree. A Go function can be initialized, built, deployed, and invoked on one Docker host.
+> Status: RFC accepted — Phases 0–3 are in tree. Go, Java, and Python HTTP functions can be initialized, built, deployed, and invoked on one Docker host.
 
 ## Docs
 
 - **[RFC-0001: Architecture](docs/RFC-0001-architecture.md)** — design, manifests (`litefaas.yaml`), API, phases
 - Kinds: `function` | `backend` | `frontend`
-- Runtimes: `go` (Phase 2) · `java` | `python` | `dockerfile` | `static` (later phases)
+- Runtimes: `go` | `java` | `python` · `dockerfile` | `static` (later phases)
+- Presets: `spring-boot` (Java), `fastapi` (Python)
 
 ## Build
 
@@ -71,6 +72,28 @@ What each step does:
 | `lf invoke` | API | `POST /v1/invoke/{name}` reverse-proxies to the container |
 
 Re-run `lf build && lf deploy` after editing `handler.go`. `lf delete hello` removes the resource and stops the container.
+
+## Java and Python (Phase 3)
+
+Same verbs as Go. Generic HTTP templates bind `0.0.0.0:$PORT` and serve `GET /healthz`. One preset per language:
+
+```bash
+./lf init hello-java --runtime java
+./lf init hello-py --runtime python
+./lf init orders --runtime java --preset spring-boot
+./lf init api --runtime python --preset fastapi
+
+cd hello-py && ../lf build && ../lf deploy --gateway http://127.0.0.1:8080
+../lf invoke hello-py -d '{"name":"litefaas"}'
+# {"message":"hello from litefaas","function":"hello-py"}
+```
+
+| Runtime / preset | Template |
+|------------------|----------|
+| `java` | `templates/runtimes/java/http` (`com.sun.net.httpserver`) |
+| `java --preset spring-boot` | `templates/presets/java/spring-boot` |
+| `python` | `templates/runtimes/python/http` (stdlib `http.server`) |
+| `python --preset fastapi` | `templates/presets/python/fastapi` |
 
 ## Health and version
 

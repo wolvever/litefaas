@@ -59,8 +59,56 @@ func TestInitGoHTTP(t *testing.T) {
 	}
 }
 
-func TestInitRejectsOtherRuntime(t *testing.T) {
-	_, err := Init(Options{Name: "x", Runtime: types.RuntimeJava, Dir: t.TempDir()})
+func TestInitJavaPythonAndPresets(t *testing.T) {
+	parent := t.TempDir()
+	cases := []struct {
+		name   string
+		rt     types.Runtime
+		preset string
+		file   string
+	}{
+		{"hello-java", types.RuntimeJava, "", "Handler.java"},
+		{"hello-py", types.RuntimePython, "", "handler.py"},
+		{"orders", types.RuntimeJava, "spring-boot", "src/main/java/hello/Application.java"},
+		{"api", types.RuntimePython, "fastapi", "main.py"},
+	}
+	for _, tc := range cases {
+		dest, err := Init(Options{Name: tc.name, Runtime: tc.rt, Preset: tc.preset, Dir: parent})
+		if err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if _, err := os.Stat(filepath.Join(dest, tc.file)); err != nil {
+			t.Fatalf("%s missing %s: %v", tc.name, tc.file, err)
+		}
+		if _, err := os.Stat(filepath.Join(dest, "Dockerfile")); err != nil {
+			t.Fatalf("%s missing Dockerfile: %v", tc.name, err)
+		}
+		m, _, err := manifest.LoadDir(dest)
+		if err != nil {
+			t.Fatalf("%s manifest: %v", tc.name, err)
+		}
+		if m.Runtime != string(tc.rt) || m.Preset != tc.preset || m.Name != tc.name {
+			t.Fatalf("%s manifest = %+v", tc.name, m)
+		}
+		raw, err := os.ReadFile(filepath.Join(dest, tc.file))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "{{name}}") {
+			t.Fatalf("%s still has placeholders", tc.name)
+		}
+	}
+}
+
+func TestInitRejectsUnknownRuntime(t *testing.T) {
+	_, err := Init(Options{Name: "x", Runtime: types.RuntimeDockerfile, Dir: t.TempDir()})
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestInitRejectsUnknownPreset(t *testing.T) {
+	_, err := Init(Options{Name: "x", Runtime: types.RuntimeJava, Preset: "quarkus", Dir: t.TempDir()})
 	if err == nil {
 		t.Fatal("expected error")
 	}

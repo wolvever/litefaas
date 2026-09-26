@@ -26,6 +26,34 @@ func TestCmdInitGo(t *testing.T) {
 	}
 }
 
+func TestCmdInitJavaPython(t *testing.T) {
+	parent := t.TempDir()
+	if err := run([]string{"init", "hello-java", "--runtime", "java", "--dir", parent}); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(parent, "hello-java")
+	m, _, err := manifest.LoadDir(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Runtime != "java" {
+		t.Fatalf("manifest = %+v", m)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "Handler.java")); err != nil {
+		t.Fatal(err)
+	}
+	if err := run([]string{"init", "hello-py", "--runtime", "python", "--preset", "fastapi", "--dir", parent}); err != nil {
+		t.Fatal(err)
+	}
+	m, _, err = manifest.LoadDir(filepath.Join(parent, "hello-py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Runtime != "python" || m.Preset != "fastapi" {
+		t.Fatalf("fastapi manifest = %+v", m)
+	}
+}
+
 func TestCmdInitRequiresRuntime(t *testing.T) {
 	if err := run([]string{"init", "hello"}); err == nil {
 		t.Fatal("expected usage error")

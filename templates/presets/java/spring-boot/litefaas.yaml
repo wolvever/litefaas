@@ -1,0 +1,10 @@
+name: {{name}}
+kind: {{kind}}
+runtime: java
+preset: spring-boot
+handler: .
+image: {{name}}:latest
+port: 8080
+memory: 512
+timeout: 60s
+health: /healthz

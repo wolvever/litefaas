@@ -1,0 +1,6 @@
+name: spring-boot
+runtime: java
+preset: spring-boot
+kind: function
+language: java
+description: Spring Boot HTTP preset (binds 0.0.0.0:$PORT)
