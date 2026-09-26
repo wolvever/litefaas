@@ -205,4 +205,58 @@ func TestInvokeFunction(t *testing.T) {
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("missing invoke status = %d", rec.Code)
 	}
+
+	req = httptest.NewRequest(http.MethodPost, "/v1/invoke/svc", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusBadRequest || !bytes.Contains(rec.Body.Bytes(), []byte("kind=function")) {
+		t.Fatalf("invoke backend = %d %s", rec.Code, rec.Body.String())
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/routes", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("routes status = %d", rec.Code)
+	}
+	var routes []map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&routes); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, rt := range routes {
+		if rt["name"] == "svc" {
+			found = true
+			if rt["strip_prefix"] != true || rt["path"] != "/api" {
+				t.Fatalf("svc route = %+v", rt)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("routes = %+v", routes)
+	}
+}
+
+func TestCreateBackendDefaultsReplicas(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	srv := New(Options{Store: st, Runner: runner.NewFake()})
+
+	body := []byte(`{"name":"orders","kind":"backend","runtime":"dockerfile"}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	var got types.Resource
+	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got.Replicas != 1 || got.Kind != types.KindBackend {
+		t.Fatalf("created = %+v", got)
+	}
 }

@@ -1,0 +1,5 @@
+name: dockerfile
+runtime: dockerfile
+kind: backend
+language: dockerfile
+description: User-supplied Dockerfile escape hatch (bind 0.0.0.0:$PORT)

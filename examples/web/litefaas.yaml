@@ -6,6 +6,7 @@ image: web:latest
 port: 8080
 memory: 64
 timeout: 30s
+replicas: 1
 health: /
 triggers:
   - type: http

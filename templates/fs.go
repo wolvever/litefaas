@@ -17,3 +17,8 @@ var Presets embed.FS
 //
 //go:embed all:frontend
 var Frontend embed.FS
+
+// Meta holds escape-hatch scaffolds under templates/meta/.
+//
+//go:embed all:meta
+var Meta embed.FS

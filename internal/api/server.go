@@ -381,6 +381,11 @@ func validateResource(r *types.Resource) error {
 			r.Health = "/healthz"
 		}
 	}
+	reps, err := types.NormalizeReplicas(r.Kind, r.Replicas)
+	if err != nil {
+		return err
+	}
+	r.Replicas = reps
 	return nil
 }
 

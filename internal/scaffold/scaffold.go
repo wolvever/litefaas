@@ -45,8 +45,10 @@ func templateRoot(rt types.Runtime, preset string) (fs.FS, string, error) {
 		return templates.Runtimes, "runtimes/python/http", nil
 	case types.RuntimeStatic:
 		return templates.Frontend, "frontend/static", nil
+	case types.RuntimeDockerfile:
+		return templates.Meta, "meta/dockerfile", nil
 	default:
-		return nil, "", fmt.Errorf("runtime %q is not available yet (dockerfile comes in Phase 5)", rt)
+		return nil, "", fmt.Errorf("runtime %q is not supported", rt)
 	}
 }
 
@@ -60,11 +62,7 @@ func Init(opts Options) (string, error) {
 	}
 	kind := opts.Kind
 	if kind == "" {
-		if opts.Runtime == types.RuntimeStatic {
-			kind = types.KindFrontend
-		} else {
-			kind = types.KindFunction
-		}
+		kind = DefaultKind(opts.Runtime)
 	}
 	if _, err := types.ParseKind(string(kind)); err != nil {
 		return "", err
@@ -116,7 +114,52 @@ func Init(opts Options) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if err := applyKindDefaults(dest, kind, opts.Name); err != nil {
+		return "", err
+	}
 	return dest, nil
+}
+
+// DefaultKind is frontend for static, backend for dockerfile, function otherwise.
+func DefaultKind(rt types.Runtime) types.Kind {
+	switch rt {
+	case types.RuntimeStatic:
+		return types.KindFrontend
+	case types.RuntimeDockerfile:
+		return types.KindBackend
+	default:
+		return types.KindFunction
+	}
+}
+
+// applyKindDefaults adds always-on replicas and a strip_prefix HTTP trigger for backends
+// when the copied template has none (language HTTP templates are function-oriented).
+func applyKindDefaults(dest string, kind types.Kind, name string) error {
+	path := filepath.Join(dest, "litefaas.yaml")
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return err
+	}
+	body := string(raw)
+	changed := false
+	if kind.AlwaysOn() && !strings.Contains(body, "replicas:") {
+		if !strings.HasSuffix(body, "\n") {
+			body += "\n"
+		}
+		body += "replicas: 1\n"
+		changed = true
+	}
+	if kind == types.KindBackend && !strings.Contains(body, "triggers:") {
+		if !strings.HasSuffix(body, "\n") {
+			body += "\n"
+		}
+		body += "triggers:\n  - type: http\n    path: /" + name + "\n    strip_prefix: true\n"
+		changed = true
+	}
+	if !changed {
+		return nil
+	}
+	return os.WriteFile(path, []byte(body), 0o644)
 }
 
 func prepareDir(dest string, force bool) error {

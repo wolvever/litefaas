@@ -2,13 +2,13 @@
 
 Poor man's serverless: a minimal **CLI + API** control plane to build and deploy **functions**, **backends** (Java / Go / Python), and a **lightweight frontend**, self-hosted on a single node.
 
-> Status: RFC accepted — Phases 0–4 are in tree. Functions plus a static frontend and path-routed API demo run on one Docker host.
+> Status: RFC accepted — Phases 0–5 are in tree. Functions, always-on backends, a static frontend, and a user-owned Dockerfile escape hatch run on one Docker host.
 
 ## Docs
 
 - **[RFC-0001: Architecture](docs/RFC-0001-architecture.md)** — design, manifests (`litefaas.yaml`), API, phases
-- Kinds: `function` | `backend` | `frontend`
-- Runtimes: `go` | `java` | `python` | `static` · `dockerfile` (Phase 5)
+- Kinds: `function` (invoke + timeout) | `backend` (always-on, min replicas ≥ 1) | `frontend`
+- Runtimes: `go` | `java` | `python` | `dockerfile` | `static`
 - Presets: `spring-boot` (Java), `fastapi` (Python)
 
 ## Build
@@ -95,6 +95,7 @@ cd hello-py && ../lf build && ../lf deploy --gateway http://127.0.0.1:8080
 | `python` | `templates/runtimes/python/http` (stdlib `http.server`) |
 | `python --preset fastapi` | `templates/presets/python/fastapi` |
 | `static` (`--kind frontend`) | `templates/frontend/static` (nginx + SPA `try_files`) |
+| `dockerfile` (`--kind backend` by default) | `templates/meta/dockerfile` (user-owned Dockerfile) |
 
 ## Demo: static frontend + API (Phase 4)
 
@@ -118,8 +119,40 @@ Or scaffold your own:
 ```bash
 ./lf init web --runtime static --kind frontend
 ./lf init api --runtime python --kind backend
-# set api/litefaas.yaml trigger path /api and strip_prefix: true
+# backend scaffold adds trigger /api (name) with strip_prefix: true
 ```
+
+## Backends + Dockerfile (Phase 5)
+
+`kind: backend` is always-on: the control plane defaults **replicas ≥ 1** and starts the container with `--restart unless-stopped`. Reach it through an HTTP trigger on the edge proxy — **not** `lf invoke` (that path stays function-only and enforces `timeout`).
+
+`strip_prefix: true` on a trigger lets a backend mount under `/api` (or `/echo`) while the process still sees `/` and `/healthz`.
+
+`runtime: dockerfile` is the escape hatch: you own the Dockerfile. `lf init` copies a tiny working sample you can replace.
+
+```bash
+./lf init echo --runtime dockerfile --kind backend
+cd echo
+../lf build && ../lf deploy --gateway http://127.0.0.1:8080
+curl -s http://127.0.0.1:8080/echo/
+# {"ok":true,"service":"echo","path":"/"}
+curl -s http://127.0.0.1:8080/echo/healthz
+```
+
+Or use the checked-in sample:
+
+```bash
+./lf build examples/echo && ./lf deploy examples/echo --gateway http://127.0.0.1:8080
+curl -s http://127.0.0.1:8080/echo/
+```
+
+| Kind | How you call it | Idle / restart |
+|------|-----------------|----------------|
+| `function` | `lf invoke` / `POST /v1/invoke/{name}` (platform timeout) | scale-to-zero allowed (`--restart no`) |
+| `backend` | edge trigger path, optional `strip_prefix` | min replicas 1, `--restart unless-stopped` |
+| `frontend` | edge `/` (SPA `try_files`) | min replicas 1, `--restart unless-stopped` |
+
+`--kind backend` works with any HTTP runtime (`go`, `java`, `python`, `dockerfile`). Language templates that start as functions get a default trigger `/{name}` with `strip_prefix: true`.
 
 ## Health and version
 
@@ -186,11 +219,11 @@ Docker-required smoke (same as the demo above): `litefaasd` running, then `lf in
 
 ## Manifest (`litefaas.yaml`)
 
-Parsed fields for a Go function (RFC-0001 §7): `name`, `kind`, `runtime`, `handler`, `image`, `port`, `memory` (MiB), `timeout`, `health`, `env`.
+Parsed fields (RFC-0001 §7): `name`, `kind`, `runtime`, `handler`, `image`, `port`, `memory` (MiB), `timeout` (functions), `replicas` (backends/frontends default 1), `health`, `env`, `triggers` (`path`, `strip_prefix`, `spa`).
 
 ## Goals (v0.1)
 
-See GitHub milestone [v0.1.0-alpha](https://github.com/wolvever/litefaas/milestone/1). Phases 0–4 are the first public alpha.
+See GitHub milestone [v0.1.0-alpha](https://github.com/wolvever/litefaas/milestone/1). Phases 0–5 are implemented; Phase 6 is hardening.
 
 ## Inspiration
 

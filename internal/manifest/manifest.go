@@ -26,6 +26,7 @@ type Manifest struct {
 	Memory   int               `yaml:"memory,omitempty"`
 	Timeout  string            `yaml:"timeout,omitempty"`
 	Health   string            `yaml:"health,omitempty"`
+	Replicas int               `yaml:"replicas,omitempty"`
 	Triggers []types.Trigger   `yaml:"triggers,omitempty"`
 	Env      map[string]string `yaml:"env,omitempty"`
 	Build    *types.Build      `yaml:"build,omitempty"`
@@ -106,6 +107,11 @@ func (m *Manifest) normalize() error {
 			m.Health = "/healthz"
 		}
 	}
+	reps, err := types.NormalizeReplicas(kind, m.Replicas)
+	if err != nil {
+		return err
+	}
+	m.Replicas = reps
 	return nil
 }
 
@@ -121,6 +127,7 @@ func (m *Manifest) Resource() types.Resource {
 		Memory:   m.Memory,
 		Timeout:  m.Timeout,
 		Health:   m.Health,
+		Replicas: m.Replicas,
 		Triggers: m.Triggers,
 		Env:      m.Env,
 		Build:    m.Build,

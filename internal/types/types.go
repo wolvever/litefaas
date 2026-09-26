@@ -26,6 +26,36 @@ func ParseKind(s string) (Kind, error) {
 	}
 }
 
+// AlwaysOn reports whether the kind keeps at least one replica running
+// (RFC-0001 §5.2). Functions are invoke-oriented and may scale to zero.
+func (k Kind) AlwaysOn() bool {
+	switch k {
+	case KindBackend, KindFrontend:
+		return true
+	default:
+		return false
+	}
+}
+
+// DefaultReplicas is 1 for always-on kinds and 0 for functions (scale-to-zero allowed).
+func DefaultReplicas(k Kind) int {
+	if k.AlwaysOn() {
+		return 1
+	}
+	return 0
+}
+
+// NormalizeReplicas applies always-on mins. Backends/frontends cannot be 0.
+func NormalizeReplicas(k Kind, n int) (int, error) {
+	if n < 0 {
+		return 0, fmt.Errorf("replicas must be >= 0")
+	}
+	if k.AlwaysOn() && n < 1 {
+		return 1, nil
+	}
+	return n, nil
+}
+
 // Runtime is a litefaas.yaml runtime.
 type Runtime string
 
@@ -48,16 +78,16 @@ func ParseRuntime(s string) (Runtime, error) {
 
 // Trigger is an HTTP path binding from a manifest.
 type Trigger struct {
-	Type        string `json:"type,omitempty"`
-	Path        string `json:"path,omitempty"`
-	StripPrefix bool   `json:"strip_prefix,omitempty"`
-	SPA         bool   `json:"spa,omitempty"`
+	Type        string `json:"type,omitempty" yaml:"type,omitempty"`
+	Path        string `json:"path,omitempty" yaml:"path,omitempty"`
+	StripPrefix bool   `json:"strip_prefix,omitempty" yaml:"strip_prefix,omitempty"`
+	SPA         bool   `json:"spa,omitempty" yaml:"spa,omitempty"`
 }
 
 // Build is an optional pre-image build step.
 type Build struct {
-	Command []string `json:"command,omitempty"`
-	Output  string   `json:"output,omitempty"`
+	Command []string `json:"command,omitempty" yaml:"command,omitempty"`
+	Output  string   `json:"output,omitempty" yaml:"output,omitempty"`
 }
 
 // Resource is control-plane metadata for a function, backend, or frontend.
@@ -72,6 +102,7 @@ type Resource struct {
 	Memory    int               `json:"memory,omitempty"`
 	Timeout   string            `json:"timeout,omitempty"`
 	Health    string            `json:"health,omitempty"`
+	Replicas  int               `json:"replicas,omitempty"`
 	Triggers  []Trigger         `json:"triggers,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
 	Build     *Build            `json:"build,omitempty"`

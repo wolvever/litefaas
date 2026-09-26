@@ -1,14 +1,13 @@
-name: api
+name: echo
 kind: backend
-runtime: python
+runtime: dockerfile
 handler: .
-image: api:latest
+image: echo:latest
 port: 8080
 memory: 128
-timeout: 30s
 replicas: 1
 health: /healthz
 triggers:
   - type: http
-    path: /api
+    path: /echo
     strip_prefix: true

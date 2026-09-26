@@ -59,7 +59,7 @@ func printUsage(w io.Writer) {
 Usage:
   lf version                 Print CLI version
   lf health                  GET /healthz on the current gateway
-  lf init <name> --runtime go|java|python|static [--preset ...] [--kind function|backend|frontend]
+  lf init <name> --runtime go|java|python|dockerfile|static [--preset ...] [--kind function|backend|frontend]
   lf build [path]            docker build the litefaas.yaml image
   lf deploy [path]           Register + deploy the container via the API
   lf invoke <name> [-d BODY] POST /v1/invoke/{name}
@@ -166,9 +166,9 @@ func cmdList(args []string) error {
 		return err
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "NAME\tKIND\tRUNTIME\tIMAGE")
+	fmt.Fprintln(tw, "NAME\tKIND\tRUNTIME\tREPLICAS\tIMAGE")
 	for _, r := range list {
-		fmt.Fprintf(tw, "%s\t%s\t%s\t%s\n", r.Name, r.Kind, r.Runtime, r.Image)
+		fmt.Fprintf(tw, "%s\t%s\t%s\t%d\t%s\n", r.Name, r.Kind, r.Runtime, r.Replicas, r.Image)
 	}
 	return tw.Flush()
 }

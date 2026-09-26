@@ -65,3 +65,24 @@ func TestMaterializeWritesDockerfile(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMaterializeDockerfileRequiresUserFile(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "litefaas.yaml"), []byte("name: echo\nkind: backend\nruntime: dockerfile\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, _, err := manifest.LoadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := materialize(dir, m); err == nil {
+		t.Fatal("expected missing Dockerfile error")
+	}
+
+	if err := os.WriteFile(filepath.Join(dir, "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := materialize(dir, m); err != nil {
+		t.Fatal(err)
+	}
+}

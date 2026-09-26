@@ -44,6 +44,42 @@ func TestLoadRejectsBadTimeout(t *testing.T) {
 	}
 }
 
+func TestLoadBackendReplicasAndStripPrefix(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, FileName)
+	raw := "name: orders\nkind: backend\nruntime: dockerfile\ntriggers:\n  - type: http\n    path: /api\n    strip_prefix: true\n"
+	if err := os.WriteFile(path, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	m, err := Load(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Kind != string(types.KindBackend) || m.Replicas != 1 {
+		t.Fatalf("backend defaults = %+v", m)
+	}
+	if len(m.Triggers) != 1 || m.Triggers[0].Path != "/api" || !m.Triggers[0].StripPrefix {
+		t.Fatalf("triggers = %+v", m.Triggers)
+	}
+	res := m.Resource()
+	if res.Replicas != 1 || !res.Triggers[0].StripPrefix {
+		t.Fatalf("resource = %+v", res)
+	}
+}
+
+func TestLoadExampleAPIStripPrefix(t *testing.T) {
+	m, err := Load(filepath.Join("..", "..", "examples", "api", "litefaas.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Kind != string(types.KindBackend) || m.Replicas != 1 {
+		t.Fatalf("example api = %+v", m)
+	}
+	if len(m.Triggers) != 1 || !m.Triggers[0].StripPrefix || m.Triggers[0].Path != "/api" {
+		t.Fatalf("example api triggers = %+v", m.Triggers)
+	}
+}
+
 func TestParseTimeout(t *testing.T) {
 	d, err := ParseTimeout("45s")
 	if err != nil || d.Seconds() != 45 {

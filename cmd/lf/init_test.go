@@ -75,6 +75,41 @@ func TestCmdInitStaticFrontend(t *testing.T) {
 	}
 }
 
+func TestCmdInitDockerfileAndKindBackend(t *testing.T) {
+	parent := t.TempDir()
+	if err := run([]string{"init", "echo", "--runtime", "dockerfile", "--dir", parent}); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(parent, "echo")
+	m, _, err := manifest.LoadDir(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Runtime != "dockerfile" || m.Kind != "backend" || m.Replicas != 1 {
+		t.Fatalf("dockerfile manifest = %+v", m)
+	}
+	if len(m.Triggers) == 0 || m.Triggers[0].Path != "/echo" || !m.Triggers[0].StripPrefix {
+		t.Fatalf("triggers = %+v", m.Triggers)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "Dockerfile")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := run([]string{"init", "orders", "--runtime", "python", "--kind", "backend", "--dir", parent}); err != nil {
+		t.Fatal(err)
+	}
+	m, _, err = manifest.LoadDir(filepath.Join(parent, "orders"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Kind != "backend" || m.Runtime != "python" || m.Replicas != 1 {
+		t.Fatalf("kind backend manifest = %+v", m)
+	}
+	if len(m.Triggers) == 0 || !m.Triggers[0].StripPrefix || m.Triggers[0].Path != "/orders" {
+		t.Fatalf("backend triggers = %+v", m.Triggers)
+	}
+}
+
 func TestCmdInitRequiresRuntime(t *testing.T) {
 	if err := run([]string{"init", "hello"}); err == nil {
 		t.Fatal("expected usage error")

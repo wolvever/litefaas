@@ -1,14 +1,13 @@
 name: {{name}}
 kind: {{kind}}
-runtime: static
+runtime: dockerfile
 handler: .
 image: {{name}}:latest
 port: 8080
-memory: 64
-timeout: 30s
+memory: 128
 replicas: 1
-health: /
+health: /healthz
 triggers:
   - type: http
-    path: /
-    spa: true
+    path: /{{name}}
+    strip_prefix: true

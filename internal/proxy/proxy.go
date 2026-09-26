@@ -49,17 +49,32 @@ func Director(route Route) func(*http.Request) {
 		req.URL.Host = target.Host
 		req.Host = target.Host
 		if route.StripPrefix && route.Path != "/" {
-			prefix := strings.TrimRight(route.Path, "/")
-			if req.URL.Path == prefix {
-				req.URL.Path = "/"
-			} else if strings.HasPrefix(req.URL.Path, prefix+"/") {
-				req.URL.Path = strings.TrimPrefix(req.URL.Path, prefix)
-				if req.URL.Path == "" {
-					req.URL.Path = "/"
-				}
+			req.URL.Path = StripPrefix(req.URL.Path, route.Path)
+			if req.URL.RawPath != "" {
+				req.URL.RawPath = StripPrefix(req.URL.RawPath, route.Path)
 			}
 		}
 	}
+}
+
+// StripPrefix removes a trigger path prefix so a backend can mount under /api
+// and still see /healthz and / as its own roots (RFC-0001 §7).
+func StripPrefix(path, triggerPath string) string {
+	prefix := strings.TrimRight(triggerPath, "/")
+	if prefix == "" || prefix == "/" {
+		return path
+	}
+	if path == prefix {
+		return "/"
+	}
+	if strings.HasPrefix(path, prefix+"/") {
+		out := strings.TrimPrefix(path, prefix)
+		if out == "" {
+			return "/"
+		}
+		return out
+	}
+	return path
 }
 
 func Handler(route Route) http.Handler {

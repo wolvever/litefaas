@@ -87,9 +87,59 @@ func TestDockerDeployCommands(t *testing.T) {
 		t.Fatal("docker run not called")
 	}
 	joined := strings.Join(run, " ")
-	for _, want := range []string{"--name litefaas-hello", "--memory 64m", "-p 127.0.0.1::8080", "-e GREETING=hi", "-e PORT=8080", "hello:latest"} {
+	for _, want := range []string{"--name litefaas-hello", "--restart no", "--memory 64m", "-p 127.0.0.1::8080", "-e GREETING=hi", "-e PORT=8080", "hello:latest"} {
 		if !strings.Contains(joined, want) {
 			t.Fatalf("run missing %q in %v", want, run)
+		}
+	}
+}
+
+func TestDockerDeployBackendAlwaysOn(t *testing.T) {
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = io.WriteString(w, "ok")
+	}))
+	t.Cleanup(health.Close)
+	hostPort := strings.TrimPrefix(health.URL, "http://127.0.0.1:")
+
+	origOut := dockercli.Output
+	t.Cleanup(func() { dockercli.Output = origOut })
+
+	var run []string
+	dockercli.Output = func(_ context.Context, name string, args ...string) (string, error) {
+		if name != "docker" {
+			t.Fatalf("name = %s", name)
+		}
+		if len(args) > 0 && args[0] == "run" {
+			run = append([]string{}, args...)
+		}
+		switch args[0] {
+		case "version", "rm", "run":
+			return "ok", nil
+		case "port":
+			return "8080/tcp -> 127.0.0.1:" + hostPort, nil
+		default:
+			t.Fatalf("unexpected %v", args)
+		}
+		return "", nil
+	}
+
+	d := NewDocker()
+	_, err := d.Deploy(context.Background(), types.Resource{
+		Name:     "orders",
+		Kind:     types.KindBackend,
+		Runtime:  types.RuntimeDockerfile,
+		Image:    "orders:latest",
+		Replicas: 1,
+		Health:   "/healthz",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(run, " ")
+	for _, want := range []string{"--restart unless-stopped", "--label litefaas.kind=backend", "--label litefaas.always-on=1"} {
+		if !strings.Contains(joined, want) {
+			t.Fatalf("backend run missing %q in %v", want, run)
 		}
 	}
 }

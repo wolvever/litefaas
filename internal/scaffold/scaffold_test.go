@@ -101,8 +101,56 @@ func TestInitJavaPythonAndPresets(t *testing.T) {
 	}
 }
 
+func TestInitDockerfileBackend(t *testing.T) {
+	parent := t.TempDir()
+	dest, err := Init(Options{Name: "echo", Runtime: types.RuntimeDockerfile, Dir: parent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"litefaas.yaml", "Dockerfile", "handler.py"} {
+		if _, err := os.Stat(filepath.Join(dest, name)); err != nil {
+			t.Fatalf("missing %s: %v", name, err)
+		}
+	}
+	m, _, err := manifest.LoadDir(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Runtime != "dockerfile" || m.Kind != "backend" || m.Replicas != 1 {
+		t.Fatalf("manifest = %+v", m)
+	}
+	if len(m.Triggers) != 1 || m.Triggers[0].Path != "/echo" || !m.Triggers[0].StripPrefix {
+		t.Fatalf("triggers = %+v", m.Triggers)
+	}
+	raw, err := os.ReadFile(filepath.Join(dest, "handler.py"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "{{name}}") {
+		t.Fatal("handler still has placeholders")
+	}
+}
+
+func TestInitKindBackendAddsTrigger(t *testing.T) {
+	parent := t.TempDir()
+	dest, err := Init(Options{Name: "orders", Runtime: types.RuntimeGo, Kind: types.KindBackend, Dir: parent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m, _, err := manifest.LoadDir(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Kind != "backend" || m.Replicas != 1 {
+		t.Fatalf("manifest = %+v", m)
+	}
+	if len(m.Triggers) != 1 || m.Triggers[0].Path != "/orders" || !m.Triggers[0].StripPrefix {
+		t.Fatalf("triggers = %+v", m.Triggers)
+	}
+}
+
 func TestInitRejectsUnknownRuntime(t *testing.T) {
-	_, err := Init(Options{Name: "x", Runtime: types.RuntimeDockerfile, Dir: t.TempDir()})
+	_, err := Init(Options{Name: "x", Runtime: types.Runtime("node"), Dir: t.TempDir()})
 	if err == nil {
 		t.Fatal("expected error")
 	}

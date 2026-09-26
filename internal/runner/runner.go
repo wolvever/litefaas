@@ -52,6 +52,14 @@ func ContainerName(name string) string {
 	return containerPrefix + name
 }
 
+// restartPolicy keeps backends/frontends always-on; functions may exit (scale-to-zero).
+func restartPolicy(kind types.Kind) string {
+	if kind.AlwaysOn() {
+		return "unless-stopped"
+	}
+	return "no"
+}
+
 func (d *Docker) Deploy(ctx context.Context, res types.Resource) (Result, error) {
 	if err := dockercli.Available(ctx); err != nil {
 		return Result{}, err
@@ -70,12 +78,24 @@ func (d *Docker) Deploy(ctx context.Context, res types.Resource) (Result, error)
 	cname := ContainerName(res.Name)
 	_ = d.Remove(ctx, res.Name)
 
+	kind := res.Kind
+	if kind == "" {
+		kind = types.KindFunction
+	}
+	restart := restartPolicy(kind)
+	alwaysOn := "0"
+	if kind.AlwaysOn() {
+		alwaysOn = "1"
+	}
+
 	args := []string{
 		"run", "-d",
 		"--name", cname,
-		"--restart", "unless-stopped",
+		"--restart", restart,
 		"--label", "litefaas.managed=1",
 		"--label", "litefaas.name=" + res.Name,
+		"--label", "litefaas.kind=" + string(kind),
+		"--label", "litefaas.always-on=" + alwaysOn,
 		"--memory", fmt.Sprintf("%dm", mem),
 		"-p", fmt.Sprintf("127.0.0.1::%d", port),
 	}
