@@ -2,13 +2,13 @@
 
 Poor man's serverless: a minimal **CLI + API** control plane to build and deploy **functions**, **backends** (Java / Go / Python), and a **lightweight frontend**, self-hosted on a single node.
 
-> Status: RFC accepted — Phases 0–3 are in tree. Go, Java, and Python HTTP functions can be initialized, built, deployed, and invoked on one Docker host.
+> Status: RFC accepted — Phases 0–4 are in tree. Functions plus a static frontend and path-routed API demo run on one Docker host.
 
 ## Docs
 
 - **[RFC-0001: Architecture](docs/RFC-0001-architecture.md)** — design, manifests (`litefaas.yaml`), API, phases
 - Kinds: `function` | `backend` | `frontend`
-- Runtimes: `go` | `java` | `python` · `dockerfile` | `static` (later phases)
+- Runtimes: `go` | `java` | `python` | `static` · `dockerfile` (Phase 5)
 - Presets: `spring-boot` (Java), `fastapi` (Python)
 
 ## Build
@@ -94,6 +94,32 @@ cd hello-py && ../lf build && ../lf deploy --gateway http://127.0.0.1:8080
 | `java --preset spring-boot` | `templates/presets/java/spring-boot` |
 | `python` | `templates/runtimes/python/http` (stdlib `http.server`) |
 | `python --preset fastapi` | `templates/presets/python/fastapi` |
+| `static` (`--kind frontend`) | `templates/frontend/static` (nginx + SPA `try_files`) |
+
+## Demo: static frontend + API (Phase 4)
+
+On one Docker host, with the binaries built and `litefaasd` listening on `127.0.0.1:8080`:
+
+```bash
+./litefaasd --addr 127.0.0.1:8080 --data-dir ./data
+
+# other shell
+./lf build examples/web && ./lf deploy examples/web --gateway http://127.0.0.1:8080
+./lf build examples/api && ./lf deploy examples/api --gateway http://127.0.0.1:8080
+
+curl -s http://127.0.0.1:8080/          # static index.html (SPA fallback)
+curl -s http://127.0.0.1:8080/api/      # python backend {"ok":true,"service":"api"}
+```
+
+`kind: frontend` + `runtime: static` is nginx serving files (`try_files` → `index.html`). Triggers become the edge route table: `/` → web, `/api` → api (`strip_prefix: true`). Control-plane paths (`/healthz`, `/version`, `/v1/*`) stay on litefaasd.
+
+Or scaffold your own:
+
+```bash
+./lf init web --runtime static --kind frontend
+./lf init api --runtime python --kind backend
+# set api/litefaas.yaml trigger path /api and strip_prefix: true
+```
 
 ## Health and version
 
@@ -123,6 +149,7 @@ Base path `/v1`. State is sqlite under `--data-dir` (file `litefaas.db`; default
 | DELETE | `/v1/functions/{name}` | Delete resource and stop its container |
 | POST | `/v1/functions/{name}/deploy` | Deploy/replace the Docker container |
 | POST | `/v1/invoke/{name}` | Sync invoke (kind=function) |
+| GET | `/v1/routes` | Edge routes derived from deployed triggers |
 
 Auth: if `LITEFAAS_TOKEN` or `--token` is set, send `Authorization: Bearer <token>`. `/healthz` and `/version` stay open.
 

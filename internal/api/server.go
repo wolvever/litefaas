@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/wolvever/litefaas/internal/manifest"
+	"github.com/wolvever/litefaas/internal/proxy"
 	"github.com/wolvever/litefaas/internal/runner"
 	"github.com/wolvever/litefaas/internal/store"
 	"github.com/wolvever/litefaas/internal/types"
@@ -51,9 +52,28 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /v1/functions/{name}", s.auth(s.handleDelete))
 	s.mux.HandleFunc("POST /v1/functions/{name}/deploy", s.auth(s.handleDeploy))
 	s.mux.HandleFunc("POST /v1/invoke/{name}", s.auth(s.handleInvoke))
+	s.mux.HandleFunc("GET /v1/routes", s.auth(s.handleRoutes))
+}
+
+func isControlPath(p string) bool {
+	switch {
+	case p == "/healthz", p == "/version":
+		return true
+	case strings.HasPrefix(p, "/v1/"), strings.HasPrefix(p, "/invoke/"):
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if isControlPath(r.URL.Path) {
+		s.mux.ServeHTTP(w, r)
+		return
+	}
+	if s.handleEdge(w, r) {
+		return
+	}
 	s.mux.ServeHTTP(w, r)
 }
 
@@ -355,9 +375,60 @@ func validateResource(r *types.Resource) error {
 		r.Port = 8080
 	}
 	if r.Health == "" {
-		r.Health = "/healthz"
+		if r.Kind == types.KindFrontend {
+			r.Health = "/"
+		} else {
+			r.Health = "/healthz"
+		}
 	}
 	return nil
+}
+
+func (s *Server) edgeRoutes(ctx context.Context) ([]proxy.Route, error) {
+	if s.store == nil {
+		return nil, nil
+	}
+	list, err := s.store.List()
+	if err != nil {
+		return nil, err
+	}
+	eps := map[string]string{}
+	for _, res := range list {
+		if s.runner == nil {
+			continue
+		}
+		ep, err := s.runner.Endpoint(ctx, res.Name)
+		if err != nil {
+			continue
+		}
+		eps[res.Name] = ep
+	}
+	return proxy.FromResources(list, eps), nil
+}
+
+func (s *Server) handleRoutes(w http.ResponseWriter, r *http.Request) {
+	routes, err := s.edgeRoutes(r.Context())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+		return
+	}
+	if routes == nil {
+		routes = []proxy.Route{}
+	}
+	writeJSON(w, http.StatusOK, routes)
+}
+
+func (s *Server) handleEdge(w http.ResponseWriter, r *http.Request) bool {
+	routes, err := s.edgeRoutes(r.Context())
+	if err != nil || len(routes) == 0 {
+		return false
+	}
+	route, ok := proxy.Match(r.URL.Path, routes)
+	if !ok || route.Endpoint == "" {
+		return false
+	}
+	proxy.Handler(route).ServeHTTP(w, r)
+	return true
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

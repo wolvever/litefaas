@@ -100,7 +100,11 @@ func (m *Manifest) normalize() error {
 		return err
 	}
 	if m.Health == "" {
-		m.Health = "/healthz"
+		if m.Kind == string(types.KindFrontend) {
+			m.Health = "/"
+		} else {
+			m.Health = "/healthz"
+		}
 	}
 	return nil
 }

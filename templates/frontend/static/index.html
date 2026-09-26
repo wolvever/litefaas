@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>{{name}}</title>
+  <style>
+    body { font-family: sans-serif; margin: 2rem; }
+    pre { background: #f4f4f4; padding: 1rem; }
+  </style>
+</head>
+<body>
+  <h1>litefaas {{name}}</h1>
+  <p>Static frontend on <code>/</code>. API probe:</p>
+  <pre id="out">loading…</pre>
+  <script>
+    fetch('/api/').then(r => r.text()).then(t => {
+      document.getElementById('out').textContent = t;
+    }).catch(e => {
+      document.getElementById('out').textContent = String(e);
+    });
+  </script>
+</body>
+</html>

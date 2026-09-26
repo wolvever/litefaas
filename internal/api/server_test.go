@@ -163,6 +163,42 @@ func TestInvokeFunction(t *testing.T) {
 		t.Fatalf("body = %s", rec.Body.String())
 	}
 
+	web := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		_, _ = w.Write([]byte("<html>web</html>"))
+	}))
+	t.Cleanup(web.Close)
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"svc":"api","path":"` + r.URL.Path + `"}`))
+	}))
+	t.Cleanup(api.Close)
+	fake.Endpoints["site"] = web.URL
+	fake.Endpoints["svc"] = api.URL
+	for _, raw := range []string{
+		`{"name":"site","kind":"frontend","runtime":"static","triggers":[{"type":"http","path":"/","spa":true}]}`,
+		`{"name":"svc","kind":"backend","runtime":"python","triggers":[{"type":"http","path":"/api","strip_prefix":true}]}`,
+	} {
+		req = httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader([]byte(raw)))
+		rec = httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("create edge resource status = %d body=%s", rec.Code, rec.Body.String())
+		}
+	}
+	req = httptest.NewRequest(http.MethodGet, "/", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte("web")) {
+		t.Fatalf("edge / = %d %s", rec.Code, rec.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/orders", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`/orders`)) {
+		t.Fatalf("edge /api/orders = %d %s", rec.Code, rec.Body.String())
+	}
+
 	req = httptest.NewRequest(http.MethodPost, "/v1/invoke/missing", nil)
 	rec = httptest.NewRecorder()
 	srv.ServeHTTP(rec, req)

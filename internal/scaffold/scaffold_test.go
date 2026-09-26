@@ -71,6 +71,7 @@ func TestInitJavaPythonAndPresets(t *testing.T) {
 		{"hello-py", types.RuntimePython, "", "handler.py"},
 		{"orders", types.RuntimeJava, "spring-boot", "src/main/java/hello/Application.java"},
 		{"api", types.RuntimePython, "fastapi", "main.py"},
+		{"web", types.RuntimeStatic, "", "index.html"},
 	}
 	for _, tc := range cases {
 		dest, err := Init(Options{Name: tc.name, Runtime: tc.rt, Preset: tc.preset, Dir: parent})

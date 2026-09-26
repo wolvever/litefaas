@@ -1,0 +1,13 @@
+name: web
+kind: frontend
+runtime: static
+handler: .
+image: web:latest
+port: 8080
+memory: 64
+timeout: 30s
+health: /
+triggers:
+  - type: http
+    path: /
+    spa: true

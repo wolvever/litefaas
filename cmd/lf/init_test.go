@@ -54,6 +54,27 @@ func TestCmdInitJavaPython(t *testing.T) {
 	}
 }
 
+func TestCmdInitStaticFrontend(t *testing.T) {
+	parent := t.TempDir()
+	if err := run([]string{"init", "web", "--runtime", "static", "--dir", parent}); err != nil {
+		t.Fatal(err)
+	}
+	dest := filepath.Join(parent, "web")
+	m, _, err := manifest.LoadDir(dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Runtime != "static" || m.Kind != "frontend" || m.Health != "/" {
+		t.Fatalf("manifest = %+v", m)
+	}
+	if len(m.Triggers) == 0 || m.Triggers[0].Path != "/" || !m.Triggers[0].SPA {
+		t.Fatalf("triggers = %+v", m.Triggers)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "index.html")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestCmdInitRequiresRuntime(t *testing.T) {
 	if err := run([]string{"init", "hello"}); err == nil {
 		t.Fatal("expected usage error")

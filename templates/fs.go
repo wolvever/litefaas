@@ -1,4 +1,4 @@
-// Package templates embeds runtime and preset scaffolds (RFC-0001 §8).
+// Package templates embeds runtime, preset, and frontend scaffolds (RFC-0001 §8).
 package templates
 
 import "embed"
@@ -12,3 +12,8 @@ var Runtimes embed.FS
 //
 //go:embed all:presets
 var Presets embed.FS
+
+// Frontend holds files under templates/frontend/.
+//
+//go:embed all:frontend
+var Frontend embed.FS

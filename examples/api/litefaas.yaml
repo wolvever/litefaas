@@ -1,0 +1,13 @@
+name: api
+kind: backend
+runtime: python
+handler: .
+image: api:latest
+port: 8080
+memory: 128
+timeout: 30s
+health: /healthz
+triggers:
+  - type: http
+    path: /api
+    strip_prefix: true

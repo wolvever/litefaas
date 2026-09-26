@@ -1,0 +1,5 @@
+name: static
+runtime: static
+kind: frontend
+language: static
+description: nginx static/SPA frontend (listens on $PORT, SPA try_files)
