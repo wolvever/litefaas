@@ -91,7 +91,10 @@ func (m *Manifest) normalize() error {
 		m.Port = 8080
 	}
 	if m.Memory == 0 {
-		m.Memory = 128
+		m.Memory = types.DefaultMemoryMiB
+	}
+	if err := ValidateMemory(m.Memory); err != nil {
+		return err
 	}
 	if m.Timeout == "" {
 		m.Timeout = "30s"
@@ -129,7 +132,7 @@ func (m *Manifest) Resource() types.Resource {
 
 func ParseTimeout(s string) (time.Duration, error) {
 	if s == "" {
-		return 30 * time.Second, nil
+		return types.DefaultTimeout, nil
 	}
 	d, err := time.ParseDuration(s)
 	if err != nil {
@@ -138,5 +141,15 @@ func ParseTimeout(s string) (time.Duration, error) {
 	if d <= 0 {
 		return 0, fmt.Errorf("timeout must be positive")
 	}
+	if d > types.MaxTimeout {
+		return 0, fmt.Errorf("timeout %s exceeds max %s", d, types.MaxTimeout)
+	}
 	return d, nil
+}
+
+func ValidateMemory(mib int) error {
+	if mib < types.MinMemoryMiB || mib > types.MaxMemoryMiB {
+		return fmt.Errorf("memory must be %d–%d MiB, got %d", types.MinMemoryMiB, types.MaxMemoryMiB, mib)
+	}
+	return nil
 }

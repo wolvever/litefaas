@@ -32,11 +32,18 @@ type Result struct {
 	Endpoint  string `json:"endpoint"`
 }
 
+// LogsOptions selects docker logs flags.
+type LogsOptions struct {
+	Follow bool
+	Tail   int
+}
+
 // Runner deploys images as containers and reports their local endpoint.
 type Runner interface {
 	Deploy(ctx context.Context, res types.Resource) (Result, error)
 	Remove(ctx context.Context, name string) error
 	Endpoint(ctx context.Context, name string) (string, error)
+	Logs(ctx context.Context, name string, opts LogsOptions, w io.Writer) error
 }
 
 // Docker is a single-node runner that shells out to the docker CLI.
@@ -70,16 +77,22 @@ func (d *Docker) Deploy(ctx context.Context, res types.Resource) (Result, error)
 	cname := ContainerName(res.Name)
 	_ = d.Remove(ctx, res.Name)
 
-	// Backends and frontends are always-on (RFC-0001 §5.2): no scale-to-zero.
-	// Functions use the same restart policy until an idle TTL exists (Phase 6).
+	// Backends and frontends are always-on (RFC-0001 §5.2).
+	// Functions use --restart no so the idle TTL can leave them stopped.
+	restart := "unless-stopped"
+	if !types.AlwaysOn(res.Kind) {
+		restart = "no"
+	}
+	memFlag := fmt.Sprintf("%dm", mem)
 	args := []string{
 		"run", "-d",
 		"--name", cname,
-		"--restart", "unless-stopped",
+		"--restart", restart,
 		"--label", "litefaas.managed=1",
 		"--label", "litefaas.name=" + res.Name,
 		"--label", "litefaas.kind=" + string(res.Kind),
-		"--memory", fmt.Sprintf("%dm", mem),
+		"--memory", memFlag,
+		"--memory-swap", memFlag, // hard cap: no extra swap
 		"-p", fmt.Sprintf("127.0.0.1::%d", port),
 	}
 	for k, v := range res.Env {
@@ -108,6 +121,31 @@ func (d *Docker) Remove(ctx context.Context, name string) error {
 		return nil
 	}
 	return err
+}
+
+func (d *Docker) Logs(ctx context.Context, name string, opts LogsOptions, w io.Writer) error {
+	if err := dockercli.Available(ctx); err != nil {
+		return err
+	}
+	if w == nil {
+		w = io.Discard
+	}
+	args := []string{"logs", "--timestamps"}
+	if opts.Follow {
+		args = append(args, "--follow")
+	}
+	tail := opts.Tail
+	if tail <= 0 {
+		tail = 100
+	}
+	args = append(args, "--tail", strconv.Itoa(tail), ContainerName(name))
+	if err := dockercli.Exec(ctx, w, w, "docker", args...); err != nil {
+		if isMissingContainer(err) {
+			return ErrNotDeployed
+		}
+		return fmt.Errorf("docker logs: %w", err)
+	}
+	return nil
 }
 
 func (d *Docker) Endpoint(ctx context.Context, name string) (string, error) {

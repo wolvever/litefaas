@@ -11,13 +11,17 @@ import (
 	"github.com/wolvever/litefaas/internal/config"
 	"github.com/wolvever/litefaas/internal/runner"
 	"github.com/wolvever/litefaas/internal/store"
+	"github.com/wolvever/litefaas/internal/token"
+	"github.com/wolvever/litefaas/internal/types"
 	"github.com/wolvever/litefaas/internal/version"
 )
 
 func main() {
 	addr := flag.String("addr", "127.0.0.1:8080", "listen address")
 	dataDir := flag.String("data-dir", config.DefaultDataDir(), "sqlite data directory")
-	token := flag.String("token", os.Getenv("LITEFAAS_TOKEN"), "shared bearer token (LITEFAAS_TOKEN)")
+	tokFlag := flag.String("token", os.Getenv("LITEFAAS_TOKEN"), "shared bearer token (LITEFAAS_TOKEN)")
+	noAuth := flag.Bool("no-auth", false, "disable bearer auth (open control plane)")
+	idleTTL := flag.Duration("idle-ttl", types.DefaultIdleTTL, "stop idle functions (0 disables)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
@@ -33,8 +37,36 @@ func main() {
 	}
 	defer st.Close()
 
-	srv := api.New(api.Options{Store: st, Token: *token, Runner: runner.NewDocker()})
-	log.Printf("litefaasd %s listening on http://%s data-dir=%s", version.Version, *addr, st.Dir())
+	tok, info, err := token.ResolveDaemon(*tokFlag, *dataDir, *noAuth)
+	if err != nil {
+		log.Printf("token: %v", err)
+		os.Exit(1)
+	}
+	switch info.Mode {
+	case "file":
+		if info.Generated {
+			log.Printf("generated bearer token at %s (lf reads this file, or set LITEFAAS_TOKEN)", info.Path)
+		} else {
+			log.Printf("auth=on token-file=%s", info.Path)
+		}
+	case "explicit":
+		log.Printf("auth=on token=flag/env")
+	default:
+		log.Printf("auth=off")
+	}
+
+	srv := api.New(api.Options{
+		Store:   st,
+		Token:   tok,
+		Runner:  runner.NewDocker(),
+		IdleTTL: *idleTTL,
+	})
+	defer srv.Close()
+	idle := "off"
+	if *idleTTL > 0 {
+		idle = idleTTL.String()
+	}
+	log.Printf("litefaasd %s listening on http://%s data-dir=%s idle-ttl=%s", version.Version, *addr, st.Dir(), idle)
 	if err := http.ListenAndServe(*addr, srv); err != nil {
 		log.Printf("listen: %v", err)
 		os.Exit(1)

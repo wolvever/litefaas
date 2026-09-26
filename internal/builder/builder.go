@@ -21,9 +21,44 @@ type Result struct {
 }
 
 func Build(ctx context.Context, dir string, stdout, stderr io.Writer) (Result, error) {
-	m, root, err := manifest.LoadDir(dir)
+	root, m, stack, err := manifest.Resolve(dir)
 	if err != nil {
 		return Result{}, err
+	}
+	if stack != nil {
+		return Result{}, fmt.Errorf("%s is a stack.yaml; use BuildStack", dir)
+	}
+	return buildOne(ctx, root, m, stdout, stderr)
+}
+
+func BuildStack(ctx context.Context, dir string, stdout, stderr io.Writer) ([]Result, error) {
+	root, m, stack, err := manifest.Resolve(dir)
+	if err != nil {
+		return nil, err
+	}
+	if stack == nil {
+		res, err := buildOne(ctx, root, m, stdout, stderr)
+		if err != nil {
+			return nil, err
+		}
+		return []Result{res}, nil
+	}
+	var out []Result
+	for i := range stack.Services {
+		svc := &stack.Services[i]
+		ctxDir := manifest.ServiceDir(root, svc)
+		res, err := buildOne(ctx, ctxDir, svc, stdout, stderr)
+		if err != nil {
+			return out, fmt.Errorf("service %s: %w", svc.Name, err)
+		}
+		out = append(out, res)
+	}
+	return out, nil
+}
+
+func buildOne(ctx context.Context, root string, m *manifest.Manifest, stdout, stderr io.Writer) (Result, error) {
+	if m == nil {
+		return Result{}, fmt.Errorf("manifest is required")
 	}
 	if err := materialize(root, m); err != nil {
 		return Result{}, err

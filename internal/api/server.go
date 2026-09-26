@@ -10,7 +10,9 @@ import (
 	"io"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/wolvever/litefaas/internal/manifest"
@@ -25,22 +27,50 @@ var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 
 // Server is the control-plane HTTP handler.
 type Server struct {
-	mux    *http.ServeMux
-	store  *store.Store
-	token  string
-	runner runner.Runner
+	mux      *http.ServeMux
+	store    *store.Store
+	token    string
+	runner   runner.Runner
+	idleTTL  time.Duration
+	idleTick time.Duration
+	started  time.Time
+	metrics  counters
+	lastUsed sync.Map
+	stop     chan struct{}
+	stopOnce sync.Once
 }
 
 type Options struct {
-	Store  *store.Store
-	Token  string
-	Runner runner.Runner
+	Store     *store.Store
+	Token     string
+	Runner    runner.Runner
+	IdleTTL   time.Duration // 0 disables function idle stop (default for tests)
+	IdleEvery time.Duration
 }
 
 func New(opts Options) *Server {
-	s := &Server{mux: http.NewServeMux(), store: opts.Store, token: opts.Token, runner: opts.Runner}
+	s := &Server{
+		mux:      http.NewServeMux(),
+		store:    opts.Store,
+		token:    opts.Token,
+		runner:   opts.Runner,
+		idleTTL:  opts.IdleTTL,
+		idleTick: opts.IdleEvery,
+		started:  time.Now(),
+		stop:     make(chan struct{}),
+	}
+	if s.idleTick <= 0 {
+		s.idleTick = 30 * time.Second
+	}
 	s.routes()
+	if s.idleTTL > 0 {
+		go s.reapLoop()
+	}
 	return s
+}
+
+func (s *Server) Close() {
+	s.stopOnce.Do(func() { close(s.stop) })
 }
 
 func (s *Server) routes() {
@@ -49,10 +79,12 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("POST /v1/functions", s.auth(s.handleCreate))
 	s.mux.HandleFunc("GET /v1/functions", s.auth(s.handleList))
 	s.mux.HandleFunc("GET /v1/functions/{name}", s.auth(s.handleGet))
+	s.mux.HandleFunc("GET /v1/functions/{name}/logs", s.auth(s.handleLogs))
 	s.mux.HandleFunc("PUT /v1/functions/{name}", s.auth(s.handleUpdate))
 	s.mux.HandleFunc("DELETE /v1/functions/{name}", s.auth(s.handleDelete))
 	s.mux.HandleFunc("POST /v1/functions/{name}/deploy", s.auth(s.handleDeploy))
 	s.mux.HandleFunc("POST /v1/invoke/{name}", s.auth(s.handleInvoke))
+	s.mux.HandleFunc("GET /v1/metrics", s.auth(s.handleMetrics))
 	s.mux.HandleFunc("GET /v1/routes", s.auth(s.handleRoutes))
 	s.mux.HandleFunc("PUT /v1/routes", s.auth(s.handlePutRoutes))
 	s.mux.HandleFunc("DELETE /v1/routes", s.auth(s.handleClearRoutes))
@@ -82,17 +114,30 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) auth(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if s.token == "" {
-			next(w, r)
-			return
+		rec := &statusRecorder{ResponseWriter: w, status: http.StatusOK}
+		if s.token != "" {
+			got := requestToken(r)
+			if subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
+				rec.Header().Set("WWW-Authenticate", `Bearer realm="litefaas"`)
+				writeJSON(rec, http.StatusUnauthorized, errorBody{Error: "unauthorized"})
+				s.metrics.requests.Add(1)
+				s.metrics.errors.Add(1)
+				return
+			}
 		}
-		got := bearer(r.Header.Get("Authorization"))
-		if subtle.ConstantTimeCompare([]byte(got), []byte(s.token)) != 1 {
-			writeJSON(w, http.StatusUnauthorized, errorBody{Error: "unauthorized"})
-			return
+		next(rec, r)
+		s.metrics.requests.Add(1)
+		if rec.status >= 400 {
+			s.metrics.errors.Add(1)
 		}
-		next(w, r)
 	}
+}
+
+func requestToken(r *http.Request) string {
+	if t := bearer(r.Header.Get("Authorization")); t != "" {
+		return t
+	}
+	return strings.TrimSpace(r.Header.Get("X-Litefaas-Token"))
 }
 
 func bearer(h string) string {
@@ -100,7 +145,7 @@ func bearer(h string) string {
 	if strings.HasPrefix(h, p) {
 		return strings.TrimSpace(h[len(p):])
 	}
-	return strings.TrimSpace(h)
+	return ""
 }
 
 type healthResponse struct {
@@ -295,6 +340,8 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
 		return
 	}
+	s.metrics.deploys.Add(1)
+	s.touch(name)
 	writeJSON(w, http.StatusAccepted, deployResponse{Revision: rev, Endpoint: out.Endpoint, Container: out.Container})
 }
 
@@ -321,7 +368,7 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invoke is only supported for kind=function"})
 		return
 	}
-	ep, err := s.runner.Endpoint(r.Context(), name)
+	ep, err := s.ensureEndpoint(r.Context(), res)
 	if errors.Is(err, runner.ErrNotDeployed) {
 		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "function is not deployed"})
 		return
@@ -332,7 +379,7 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 	}
 	timeout, err := manifest.ParseTimeout(res.Timeout)
 	if err != nil {
-		timeout = 30 * time.Second
+		timeout = types.DefaultTimeout
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
@@ -358,6 +405,8 @@ func (s *Server) handleInvoke(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.Copy(w, io.LimitReader(resp.Body, 1<<20))
+	s.metrics.invokes.Add(1)
+	s.touch(name)
 }
 
 func validateResource(r *types.Resource) error {
@@ -382,6 +431,17 @@ func validateResource(r *types.Resource) error {
 			r.Health = "/"
 		} else {
 			r.Health = "/healthz"
+		}
+	}
+	if r.Memory == 0 {
+		r.Memory = types.DefaultMemoryMiB
+	}
+	if err := manifest.ValidateMemory(r.Memory); err != nil {
+		return err
+	}
+	if r.Timeout != "" {
+		if _, err := manifest.ParseTimeout(r.Timeout); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -521,6 +581,148 @@ func (s *Server) handleEdge(w http.ResponseWriter, r *http.Request) bool {
 	}
 	proxy.Handler(route).ServeHTTP(w, r)
 	return true
+}
+
+func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
+	if s.store == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "store not configured"})
+		return
+	}
+	if s.runner == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "runner not configured"})
+		return
+	}
+	name := r.PathValue("name")
+	if _, err := s.store.Get(name); errors.Is(err, store.ErrNotFound) {
+		writeJSON(w, http.StatusNotFound, errorBody{Error: "not found"})
+		return
+	} else if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+		return
+	}
+	opts := runner.LogsOptions{
+		Follow: queryBool(r, "follow"),
+		Tail:   queryInt(r, "tail", 100),
+	}
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	dest := io.Writer(w)
+	if f, ok := w.(http.Flusher); ok {
+		dest = flushWriter{w: w, f: f}
+	}
+	if err := s.runner.Logs(r.Context(), name, opts, dest); err != nil {
+		if errors.Is(err, runner.ErrNotDeployed) {
+			_, _ = io.WriteString(w, "not deployed\n")
+			return
+		}
+		_, _ = io.WriteString(w, "logs: "+err.Error()+"\n")
+	}
+}
+
+func (s *Server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	n := 0
+	if s.store != nil {
+		if list, err := s.store.List(); err == nil {
+			n = len(list)
+		}
+	}
+	idle := ""
+	if s.idleTTL > 0 {
+		idle = s.idleTTL.String()
+	}
+	writeJSON(w, http.StatusOK, snapshot{
+		Started:       s.started.UTC().Truncate(time.Second),
+		UptimeSeconds: int64(time.Since(s.started).Seconds()),
+		Requests:      s.metrics.requests.Load(),
+		Invokes:       s.metrics.invokes.Load(),
+		Deploys:       s.metrics.deploys.Load(),
+		Errors:        s.metrics.errors.Load(),
+		Resources:     n,
+		Auth:          s.token != "",
+		IdleTTL:       idle,
+	})
+}
+
+func (s *Server) ensureEndpoint(ctx context.Context, res types.Resource) (string, error) {
+	ep, err := s.runner.Endpoint(ctx, res.Name)
+	if err == nil {
+		return ep, nil
+	}
+	if !errors.Is(err, runner.ErrNotDeployed) {
+		return "", err
+	}
+	if res.Image == "" {
+		return "", runner.ErrNotDeployed
+	}
+	out, err := s.runner.Deploy(ctx, res)
+	if err != nil {
+		return "", err
+	}
+	s.metrics.deploys.Add(1)
+	return out.Endpoint, nil
+}
+
+func (s *Server) touch(name string) {
+	if s.idleTTL <= 0 || name == "" {
+		return
+	}
+	s.lastUsed.Store(name, time.Now())
+}
+
+func (s *Server) reapLoop() {
+	t := time.NewTicker(s.idleTick)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.stop:
+			return
+		case <-t.C:
+			s.reapIdle()
+		}
+	}
+}
+
+func (s *Server) reapIdle() {
+	if s.store == nil || s.runner == nil || s.idleTTL <= 0 {
+		return
+	}
+	list, err := s.store.List()
+	if err != nil {
+		return
+	}
+	now := time.Now()
+	for _, res := range list {
+		if res.Kind != types.KindFunction {
+			continue
+		}
+		v, ok := s.lastUsed.Load(res.Name)
+		if !ok {
+			continue
+		}
+		last, _ := v.(time.Time)
+		if last.IsZero() || now.Sub(last) < s.idleTTL {
+			continue
+		}
+		_ = s.runner.Remove(context.Background(), res.Name)
+		s.lastUsed.Delete(res.Name)
+	}
+}
+
+func queryBool(r *http.Request, key string) bool {
+	v := strings.TrimSpace(strings.ToLower(r.URL.Query().Get(key)))
+	return v == "1" || v == "true" || v == "yes"
+}
+
+func queryInt(r *http.Request, key string, fallback int) int {
+	raw := strings.TrimSpace(r.URL.Query().Get(key))
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return n
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

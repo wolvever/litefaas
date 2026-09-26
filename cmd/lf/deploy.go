@@ -5,6 +5,7 @@ import (
 
 	"github.com/wolvever/litefaas/internal/client"
 	"github.com/wolvever/litefaas/internal/manifest"
+	"github.com/wolvever/litefaas/internal/types"
 )
 
 func cmdDeploy(args []string) error {
@@ -13,7 +14,7 @@ func cmdDeploy(args []string) error {
 	if len(rest) > 0 {
 		dir = rest[0]
 	}
-	m, _, err := manifest.LoadDir(dir)
+	_, m, stack, err := manifest.Resolve(dir)
 	if err != nil {
 		return err
 	}
@@ -21,7 +22,18 @@ func cmdDeploy(args []string) error {
 	if err != nil {
 		return err
 	}
-	res := m.Resource()
+	if stack != nil {
+		for i := range stack.Services {
+			if err := deployResource(c, stack.Services[i].Resource()); err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return deployResource(c, m.Resource())
+}
+
+func deployResource(c *client.Client, res types.Resource) error {
 	if _, err := c.Create(res); err != nil {
 		if !client.IsConflict(err) {
 			return err

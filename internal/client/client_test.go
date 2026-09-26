@@ -1,6 +1,8 @@
 package client
 
 import (
+	"bytes"
+	"context"
 	"net/http/httptest"
 	"testing"
 
@@ -60,6 +62,22 @@ func TestClientCRUDDeploy(t *testing.T) {
 	}
 	if err := c.ClearRoutes(); err != nil {
 		t.Fatal(err)
+	}
+
+	if _, err := c.Create(types.Resource{Name: "hello", Kind: types.KindFunction, Runtime: types.RuntimeGo, Image: "hello:latest"}); err != nil {
+		t.Fatal(err)
+	}
+	fake.LogsText["hello"] = "log-line\n"
+	var buf bytes.Buffer
+	if err := c.Logs(context.Background(), "hello", false, 10, &buf); err != nil {
+		t.Fatal(err)
+	}
+	if buf.String() != "log-line\n" {
+		t.Fatalf("logs = %q", buf.String())
+	}
+	m, err := c.Metrics()
+	if err != nil || m.Resources < 1 {
+		t.Fatalf("metrics = %+v err=%v", m, err)
 	}
 }
 

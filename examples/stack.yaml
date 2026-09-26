@@ -1,0 +1,39 @@
+# Multi-service stack (RFC-0001 §7 / Phase 6).
+# From repo root: lf build examples && lf deploy examples --gateway http://127.0.0.1:8080
+services:
+  web:
+    kind: frontend
+    runtime: static
+    handler: ./web
+    image: web:latest
+    port: 8080
+    memory: 64
+    health: /
+    triggers:
+      - type: http
+        path: /
+        spa: true
+  api:
+    kind: backend
+    runtime: python
+    handler: ./api
+    image: api:latest
+    port: 8080
+    memory: 128
+    health: /healthz
+    triggers:
+      - type: http
+        path: /api
+        strip_prefix: true
+  orders:
+    kind: backend
+    runtime: dockerfile
+    handler: ./orders
+    image: orders:latest
+    port: 8080
+    memory: 128
+    health: /healthz
+    triggers:
+      - type: http
+        path: /orders
+        strip_prefix: true
