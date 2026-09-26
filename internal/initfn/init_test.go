@@ -29,8 +29,39 @@ func TestInitGoHTTP(t *testing.T) {
 	}
 }
 
+func TestInitJavaPythonAndPresets(t *testing.T) {
+	root := t.TempDir()
+	cases := []struct {
+		name   string
+		rt     types.Runtime
+		preset string
+		file   string
+	}{
+		{"java-http", types.RuntimeJava, "", "Handler.java"},
+		{"py-http", types.RuntimePython, "", "handler.py"},
+		{"spring", types.RuntimeJava, "spring-boot", "src/main/java/hello/Application.java"},
+		{"fast", types.RuntimePython, "fastapi", "main.py"},
+	}
+	for _, tc := range cases {
+		dest := filepath.Join(root, tc.name)
+		if err := Init(dest, tc.name, tc.rt, types.KindFunction, tc.preset); err != nil {
+			t.Fatalf("%s: %v", tc.name, err)
+		}
+		if _, err := os.Stat(filepath.Join(dest, tc.file)); err != nil {
+			t.Fatalf("%s missing %s: %v", tc.name, tc.file, err)
+		}
+		res, err := manifest.Load(dest)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Runtime != tc.rt || res.Preset != tc.preset {
+			t.Fatalf("%s manifest = %+v", tc.name, res)
+		}
+	}
+}
+
 func TestInitRejectsUnknownRuntime(t *testing.T) {
-	if err := Init(t.TempDir(), "x", types.RuntimeJava, types.KindFunction, ""); err == nil {
+	if err := Init(t.TempDir(), "x", types.RuntimeDockerfile, types.KindFunction, ""); err == nil {
 		t.Fatal("expected error")
 	}
 }

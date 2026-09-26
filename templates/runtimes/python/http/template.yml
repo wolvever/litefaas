@@ -1,0 +1,3 @@
+language: python
+kind: function
+handler: handler.py

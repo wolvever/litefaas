@@ -2,7 +2,7 @@
 
 Poor man's serverless: a minimal **CLI + API** control plane to build and deploy **functions**, **backends** (Java / Go / Python), and a **lightweight frontend**, self-hosted on a single node.
 
-> Status: Phase 0–1 control plane plus Phase 2 Go runtime (`lf init` / `build` / `deploy` / `invoke`) on Docker.
+> Status: Phases 0–3 — control plane, Go/Java/Python HTTP runtimes, Spring Boot and FastAPI presets.
 
 ## Docs
 
@@ -39,7 +39,19 @@ go build -o litefaasd ./cmd/litefaasd
 # → {"hello":"litefaas"}
 ```
 
-`lf init --runtime go` copies `templates/runtimes/go/http` (Dockerfile + handler that binds `0.0.0.0:$PORT` and serves `GET /healthz`). `lf build` runs `docker build` and tags `litefaas/<name>:latest`. `lf deploy` POSTs metadata then `POST /v1/functions/{name}/deploy`; litefaasd `docker run`s the local image (no registry). `lf invoke` is `POST /invoke/{name}` and forwards the body to the container.
+`lf init --runtime go` copies `templates/runtimes/go/http` (Dockerfile + handler that binds `0.0.0.0:$PORT` and serves `GET /healthz`). Same flow for Java and Python:
+
+```bash
+./lf init hello-java --runtime java
+./lf init hello-py --runtime python
+# optional presets
+./lf init orders --runtime java --preset spring-boot
+./lf init api --runtime python --preset fastapi
+./lf build hello-py && ./lf deploy hello-py --gateway http://127.0.0.1:8080
+./lf invoke hello-py -d '{"hello":"python"}'
+```
+
+`lf build` runs `docker build` and tags `litefaas/<name>:latest`. `lf deploy` POSTs metadata then `POST /v1/functions/{name}/deploy`; litefaasd `docker run`s the local image (no registry). `lf invoke` is `POST /invoke/{name}` and forwards the body to the container.
 
 ## Health and version
 

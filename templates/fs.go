@@ -3,5 +3,5 @@ package templates
 
 import "embed"
 
-//go:embed all:runtimes
+//go:embed all:runtimes all:presets
 var FS embed.FS

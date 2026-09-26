@@ -1,4 +1,4 @@
-// Package initfn copies a runtime template into a new service directory.
+// Package initfn copies a runtime or preset template into a new service directory.
 package initfn
 
 import (
@@ -16,13 +16,24 @@ import (
 
 func TemplateDir(runtime types.Runtime, preset string) (string, error) {
 	if preset != "" {
-		return "", fmt.Errorf("preset %q is not available yet (Phase 3+)", preset)
+		switch string(runtime) + "/" + preset {
+		case "java/spring-boot":
+			return "presets/java/spring-boot", nil
+		case "python/fastapi":
+			return "presets/python/fastapi", nil
+		default:
+			return "", fmt.Errorf("unknown preset %q for runtime %s", preset, runtime)
+		}
 	}
 	switch runtime {
 	case types.RuntimeGo:
 		return "runtimes/go/http", nil
+	case types.RuntimeJava:
+		return "runtimes/java/http", nil
+	case types.RuntimePython:
+		return "runtimes/python/http", nil
 	default:
-		return "", fmt.Errorf("runtime %q is not scaffolded yet; Phase 2 ships go only", runtime)
+		return "", fmt.Errorf("runtime %q is not scaffolded yet (dockerfile/static come in later phases)", runtime)
 	}
 }
 
@@ -43,31 +54,14 @@ func Init(dest, name string, runtime types.Runtime, kind types.Kind, preset stri
 	if err := os.MkdirAll(dest, 0o755); err != nil {
 		return err
 	}
-	entries, err := fs.ReadDir(templates.FS, src)
-	if err != nil {
+	if err := copyTree(src, dest); err != nil {
 		return fmt.Errorf("template %s: %w", src, err)
-	}
-	for _, e := range entries {
-		if e.IsDir() {
-			continue
-		}
-		// template.yml is metadata only; litefaas.yaml is generated below.
-		if e.Name() == "template.yml" || e.Name() == "litefaas.yaml" {
-			continue
-		}
-		raw, err := templates.FS.ReadFile(path.Join(src, e.Name()))
-		if err != nil {
-			return err
-		}
-		outName := strings.TrimSuffix(e.Name(), ".tmpl")
-		if err := os.WriteFile(filepath.Join(dest, outName), raw, 0o644); err != nil {
-			return err
-		}
 	}
 	res := types.Resource{
 		Name:    name,
 		Kind:    kind,
 		Runtime: runtime,
+		Preset:  preset,
 		Handler: ".",
 		Image:   types.DefaultImage(name),
 		Port:    8080,
@@ -78,12 +72,35 @@ func Init(dest, name string, runtime types.Runtime, kind types.Kind, preset stri
 			Path: "/fn/" + name,
 		}},
 	}
-	if err := manifest.Write(dest, res); err != nil {
-		return err
-	}
-	return nil
+	return manifest.Write(dest, res)
 }
 
-func RelNote(dest string) string {
-	return strings.TrimPrefix(dest, "./")
+func copyTree(src, dest string) error {
+	return fs.WalkDir(templates.FS, src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel := strings.TrimPrefix(p, src)
+		rel = strings.TrimPrefix(rel, "/")
+		if rel == "" {
+			return nil
+		}
+		name := path.Base(p)
+		if name == "template.yml" || name == "litefaas.yaml" {
+			return nil
+		}
+		target := filepath.Join(dest, filepath.FromSlash(rel))
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		raw, err := templates.FS.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		out := strings.TrimSuffix(target, ".tmpl")
+		if err := os.MkdirAll(filepath.Dir(out), 0o755); err != nil {
+			return err
+		}
+		return os.WriteFile(out, raw, 0o644)
+	})
 }
