@@ -1,0 +1,11 @@
+name: web
+kind: frontend
+runtime: static
+handler: .
+image: litefaas/web:latest
+port: 8080
+health: /
+triggers:
+  - type: http
+    path: /
+    spa: true

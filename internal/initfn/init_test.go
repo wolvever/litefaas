@@ -41,6 +41,7 @@ func TestInitJavaPythonAndPresets(t *testing.T) {
 		{"py-http", types.RuntimePython, "", "handler.py"},
 		{"spring", types.RuntimeJava, "spring-boot", "src/main/java/hello/Application.java"},
 		{"fast", types.RuntimePython, "fastapi", "main.py"},
+		{"web", types.RuntimeStatic, "", "index.html"},
 	}
 	for _, tc := range cases {
 		dest := filepath.Join(root, tc.name)

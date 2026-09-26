@@ -61,7 +61,7 @@ func printUsage(w io.Writer) {
 	fmt.Fprint(w, `lf — litefaas CLI (RFC-0001)
 
 Usage:
-  lf init <name> --runtime go|java|python [--preset spring-boot|fastapi]
+  lf init <name> --runtime go|java|python|static [--preset spring-boot|fastapi] [--kind ...]
   lf build [path]                                 docker build (litefaas.yaml)
   lf deploy [path]                                Register + start container
   lf invoke <name> [-d payload]                   Sync invoke a function

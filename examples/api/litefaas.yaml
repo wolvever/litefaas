@@ -1,0 +1,11 @@
+name: api
+kind: backend
+runtime: python
+handler: .
+image: litefaas/api:latest
+port: 8080
+health: /healthz
+triggers:
+  - type: http
+    path: /api
+    strip_prefix: true

@@ -32,8 +32,10 @@ func TemplateDir(runtime types.Runtime, preset string) (string, error) {
 		return "runtimes/java/http", nil
 	case types.RuntimePython:
 		return "runtimes/python/http", nil
+	case types.RuntimeStatic:
+		return "frontend/static", nil
 	default:
-		return "", fmt.Errorf("runtime %q is not scaffolded yet (dockerfile/static come in later phases)", runtime)
+		return "", fmt.Errorf("runtime %q is not scaffolded yet (dockerfile comes in Phase 5)", runtime)
 	}
 }
 
@@ -57,6 +59,15 @@ func Init(dest, name string, runtime types.Runtime, kind types.Kind, preset stri
 	if err := copyTree(src, dest); err != nil {
 		return fmt.Errorf("template %s: %w", src, err)
 	}
+	trigPath := "/fn/" + name
+	health := "/healthz"
+	if kind == types.KindFrontend {
+		trigPath = "/"
+		health = "/"
+	}
+	if kind == types.KindBackend {
+		trigPath = "/api/" + name
+	}
 	res := types.Resource{
 		Name:    name,
 		Kind:    kind,
@@ -66,10 +77,12 @@ func Init(dest, name string, runtime types.Runtime, kind types.Kind, preset stri
 		Image:   types.DefaultImage(name),
 		Port:    8080,
 		Timeout: "60s",
-		Health:  "/healthz",
+		Health:  health,
 		Triggers: []types.Trigger{{
-			Type: "http",
-			Path: "/fn/" + name,
+			Type:        "http",
+			Path:        trigPath,
+			SPA:         kind == types.KindFrontend,
+			StripPrefix: kind == types.KindBackend,
 		}},
 	}
 	return manifest.Write(dest, res)

@@ -134,6 +134,40 @@ func TestResourceCRUDAndAuth(t *testing.T) {
 		t.Fatalf("invoke body = %s", rec.Body.String())
 	}
 
+	apiBackend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"svc":"api","path":"` + r.URL.Path + `"}`))
+	}))
+	t.Cleanup(apiBackend.Close)
+	webBody := []byte(`{"name":"site","kind":"frontend","runtime":"static","triggers":[{"type":"http","path":"/","spa":true}]}`)
+	req = httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(webBody))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("create site status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	apiBody := []byte(`{"name":"api","kind":"backend","runtime":"python","triggers":[{"type":"http","path":"/api","strip_prefix":true}]}`)
+	req = httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(apiBody))
+	req.Header.Set("Authorization", "Bearer secret")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated && rec.Code != http.StatusOK {
+		t.Fatalf("create api status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if err := st.PutInstance(types.Instance{Name: "site", Endpoint: backend.URL, Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PutInstance(types.Instance{Name: "api", Endpoint: apiBackend.URL, Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	req = httptest.NewRequest(http.MethodGet, "/api/orders", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || !bytes.Contains(rec.Body.Bytes(), []byte(`/orders`)) {
+		t.Fatalf("edge /api/orders = %d %s", rec.Code, rec.Body.String())
+	}
+
 	req = httptest.NewRequest(http.MethodDelete, "/v1/functions/web", nil)
 	req.Header.Set("Authorization", "Bearer secret")
 	rec = httptest.NewRecorder()

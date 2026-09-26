@@ -2,7 +2,7 @@
 
 Poor man's serverless: a minimal **CLI + API** control plane to build and deploy **functions**, **backends** (Java / Go / Python), and a **lightweight frontend**, self-hosted on a single node.
 
-> Status: Phases 0–3 — control plane, Go/Java/Python HTTP runtimes, Spring Boot and FastAPI presets.
+> Status: Phases 0–4 — control plane, Go/Java/Python runtimes, static frontend + path routing.
 
 ## Docs
 
@@ -52,6 +52,29 @@ go build -o litefaasd ./cmd/litefaasd
 ```
 
 `lf build` runs `docker build` and tags `litefaas/<name>:latest`. `lf deploy` POSTs metadata then `POST /v1/functions/{name}/deploy`; litefaasd `docker run`s the local image (no registry). `lf invoke` is `POST /invoke/{name}` and forwards the body to the container.
+
+## Demo: static frontend + API (Phase 4)
+
+On one Docker host, after the binaries are built:
+
+```bash
+./litefaasd --addr 127.0.0.1:8080 --data-dir ./data
+
+./lf build examples/web && ./lf deploy examples/web --gateway http://127.0.0.1:8080
+./lf build examples/api && ./lf deploy examples/api --gateway http://127.0.0.1:8080
+
+curl -s http://127.0.0.1:8080/          # static index.html
+curl -s http://127.0.0.1:8080/api/      # python backend ({"ok":true,"service":"api"})
+```
+
+`kind: frontend` + `runtime: static` is nginx serving files (SPA `try_files`). Triggers become the edge route table: `/` → web, `/api` → api (`strip_prefix: true`). Control-plane paths (`/healthz`, `/version`, `/v1/*`, `/invoke/*`) stay on litefaasd.
+
+Or scaffold your own:
+
+```bash
+./lf init web --runtime static --kind frontend
+./lf init api --runtime python --kind backend
+```
 
 ## Health and version
 

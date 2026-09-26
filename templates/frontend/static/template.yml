@@ -1,0 +1,3 @@
+language: static
+kind: frontend
+handler: .
