@@ -1,0 +1,13 @@
+name: {{name}}
+kind: {{kind}}
+runtime: static
+handler: .
+image: {{name}}:latest
+port: 8080
+memory: 64
+timeout: 30s
+health: /
+triggers:
+  - type: http
+    path: /
+    spa: true
