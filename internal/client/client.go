@@ -99,6 +99,46 @@ func (c *Client) ClearRoutes() error {
 	return c.do(http.MethodDelete, "/v1/routes", nil, nil)
 }
 
+type SecretRef struct {
+	Name string `json:"name"`
+}
+
+type Secret struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+func (c *Client) SecretList() ([]SecretRef, error) {
+	var out []SecretRef
+	if err := c.do(http.MethodGet, "/v1/secrets", nil, &out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []SecretRef{}
+	}
+	return out, nil
+}
+
+func (c *Client) SecretPut(name, value string) (SecretRef, error) {
+	var out SecretRef
+	if err := c.do(http.MethodPut, "/v1/secrets/"+url.PathEscape(name), map[string]string{"value": value}, &out); err != nil {
+		return SecretRef{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) SecretGet(name string) (Secret, error) {
+	var out Secret
+	if err := c.do(http.MethodGet, "/v1/secrets/"+url.PathEscape(name), nil, &out); err != nil {
+		return Secret{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) SecretDelete(name string) error {
+	return c.do(http.MethodDelete, "/v1/secrets/"+url.PathEscape(name), nil, nil)
+}
+
 type Metrics struct {
 	Started       time.Time `json:"started"`
 	UptimeSeconds int64     `json:"uptime_seconds"`

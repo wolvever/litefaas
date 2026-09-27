@@ -18,6 +18,7 @@ import (
 	"github.com/wolvever/litefaas/internal/manifest"
 	"github.com/wolvever/litefaas/internal/proxy"
 	"github.com/wolvever/litefaas/internal/runner"
+	"github.com/wolvever/litefaas/internal/secret"
 	"github.com/wolvever/litefaas/internal/store"
 	"github.com/wolvever/litefaas/internal/types"
 	"github.com/wolvever/litefaas/internal/version"
@@ -29,6 +30,7 @@ var nameRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 type Server struct {
 	mux      *http.ServeMux
 	store    *store.Store
+	secrets  *secret.Store
 	token    string
 	runner   runner.Runner
 	idleTTL  time.Duration
@@ -42,6 +44,7 @@ type Server struct {
 
 type Options struct {
 	Store     *store.Store
+	Secrets   *secret.Store
 	Token     string
 	Runner    runner.Runner
 	IdleTTL   time.Duration // 0 disables function idle stop (default for tests)
@@ -52,6 +55,7 @@ func New(opts Options) *Server {
 	s := &Server{
 		mux:      http.NewServeMux(),
 		store:    opts.Store,
+		secrets:  opts.Secrets,
 		token:    opts.Token,
 		runner:   opts.Runner,
 		idleTTL:  opts.IdleTTL,
@@ -88,6 +92,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/routes", s.auth(s.handleRoutes))
 	s.mux.HandleFunc("PUT /v1/routes", s.auth(s.handlePutRoutes))
 	s.mux.HandleFunc("DELETE /v1/routes", s.auth(s.handleClearRoutes))
+	s.mux.HandleFunc("GET /v1/secrets", s.auth(s.handleSecretList))
+	s.mux.HandleFunc("PUT /v1/secrets/{name}", s.auth(s.handleSecretPut))
+	s.mux.HandleFunc("GET /v1/secrets/{name}", s.auth(s.handleSecretGet))
+	s.mux.HandleFunc("DELETE /v1/secrets/{name}", s.auth(s.handleSecretDelete))
 }
 
 func isControlPath(p string) bool {
@@ -329,7 +337,12 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
 		return
 	}
-	out, err := s.runner.Deploy(r.Context(), res)
+	deployRes, err := s.withResolvedSecrets(res)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
+		return
+	}
+	out, err := s.runner.Deploy(r.Context(), deployRes)
 	if err != nil {
 		_, _ = s.store.AddRevision(name, res.Image, "failed")
 		writeJSON(w, http.StatusBadGateway, errorBody{Error: "deploy: " + err.Error()})
@@ -654,12 +667,42 @@ func (s *Server) ensureEndpoint(ctx context.Context, res types.Resource) (string
 	if res.Image == "" {
 		return "", runner.ErrNotDeployed
 	}
-	out, err := s.runner.Deploy(ctx, res)
+	deployRes, err := s.withResolvedSecrets(res)
+	if err != nil {
+		return "", err
+	}
+	out, err := s.runner.Deploy(ctx, deployRes)
 	if err != nil {
 		return "", err
 	}
 	s.metrics.deploys.Add(1)
 	return out.Endpoint, nil
+}
+
+// withResolvedSecrets expands ${secret:name} in env. Stored metadata keeps refs.
+func (s *Server) withResolvedSecrets(res types.Resource) (types.Resource, error) {
+	if len(res.Env) == 0 {
+		return res, nil
+	}
+	hasRef := false
+	for _, v := range res.Env {
+		if strings.Contains(v, "${secret:") {
+			hasRef = true
+			break
+		}
+	}
+	if !hasRef {
+		return res, nil
+	}
+	if s.secrets == nil {
+		return res, fmt.Errorf("secrets store not configured")
+	}
+	resolved, err := secret.ResolveEnv(res.Env, s.secrets.Get)
+	if err != nil {
+		return res, err
+	}
+	res.Env = resolved
+	return res, nil
 }
 
 func (s *Server) touch(name string) {

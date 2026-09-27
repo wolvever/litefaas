@@ -10,7 +10,7 @@ Poor man's serverless: a minimal **CLI + API** control plane to build and deploy
 - Kinds: `function` | `backend` | `frontend`
 - Runtimes: `go` | `java` | `python` | `node` | `dockerfile` | `static`
 - Presets: `spring-boot` (Java), `fastapi` (Python)
-- Stack packs (Phase 7): `java-spring-mybatis`, `java-spring-jpa`, `python-fastapi`, `python-flask-sqlalchemy`, `go-gin-gorm`, `node-express-prisma`, `node-nextjs`
+- Stack packs (Phase 7): `java-spring-mybatis`, `java-spring-jpa`, `python-fastapi`, `python-flask-sqlalchemy`, `python-django`, `go-gin-gorm`, `node-express-prisma`, `node-nestjs-prisma`, `node-nextjs`
 
 ## Install
 
@@ -253,6 +253,8 @@ services:
 ./lf build examples/stacks/notes       # python-flask-sqlalchemy
 ./lf build examples/stacks/tickets     # node-express-prisma
 ./lf build examples/stacks/portal      # node-nextjs
+./lf build examples/stacks/blog        # python-django
+./lf build examples/stacks/tasks       # node-nestjs-prisma
 ./lf deploy examples/stacks/catalog --gateway http://127.0.0.1:8080
 ```
 
@@ -270,6 +272,27 @@ stack: go-gin-gorm
 Explicit `runtime` / `preset` / `dockerfile` in a full `litefaas.yaml` still wins over fingerprints. Add a community pack by dropping a directory next to the first-party ones, or set `LITEFAAS_STACKS_DIR` (same `stack.yml` shape; same id replaces the embedded pack).
 
 Postgres/Redis lines in `stack.yml` are **hints** (printed on detect). litefaas does not start databases.
+
+## Secrets
+
+Encrypt-at-rest secrets live under the daemon `--data-dir` (`secrets.key` + `secrets/*.enc`). Values are never logged.
+Treat `--data-dir` like a private key store (`chmod 700`); backups of that directory include decryptable secrets. `--no-auth` still allows anyone who can reach the API to `GET` secret values — keep it loopback-only.
+
+```bash
+./lf secret set db --value 'postgres://app:app@localhost:5432/app'
+./lf secret list
+./lf secret get db
+./lf secret delete db
+```
+
+Reference them in `litefaas.yaml` env; litefaasd expands `${secret:name}` at **deploy** (stored metadata keeps the ref):
+
+```yaml
+env:
+  DATABASE_URL: ${secret:db}
+```
+
+API: `PUT/GET/DELETE /v1/secrets/{name}`, `GET /v1/secrets` (names only).
 
 ## Health and version
 
@@ -298,6 +321,9 @@ Base path `/v1`. State is sqlite under `--data-dir` (file `litefaas.db`; default
 | GET | `/v1/functions/{name}` | Get (includes revisions) |
 | DELETE | `/v1/functions/{name}` | Delete resource and stop its container |
 | POST | `/v1/functions/{name}/deploy` | Deploy/replace the Docker container |
+| PUT | `/v1/secrets/{name}` | Create/update secret (encrypt-at-rest) |
+| GET | `/v1/secrets` / `{name}` | List names / get value |
+| DELETE | `/v1/secrets/{name}` | Delete secret |
 | POST | `/v1/invoke/{name}` | Sync invoke (kind=function; wakes if idle-stopped) |
 | GET | `/v1/functions/{name}/logs` | Log tail (`follow`, `tail` query params) |
 | GET | `/v1/metrics` | Basic counters |

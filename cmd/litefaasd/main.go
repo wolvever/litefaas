@@ -10,6 +10,7 @@ import (
 	"github.com/wolvever/litefaas/internal/api"
 	"github.com/wolvever/litefaas/internal/config"
 	"github.com/wolvever/litefaas/internal/runner"
+	"github.com/wolvever/litefaas/internal/secret"
 	"github.com/wolvever/litefaas/internal/store"
 	"github.com/wolvever/litefaas/internal/token"
 	"github.com/wolvever/litefaas/internal/types"
@@ -55,8 +56,15 @@ func main() {
 		log.Printf("auth=off")
 	}
 
+	sec, err := secret.Open(*dataDir)
+	if err != nil {
+		log.Printf("secrets: %v", err)
+		os.Exit(1)
+	}
+
 	srv := api.New(api.Options{
 		Store:   st,
+		Secrets: sec,
 		Token:   tok,
 		Runner:  runner.NewDocker(),
 		IdleTTL: *idleTTL,
