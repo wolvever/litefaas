@@ -16,20 +16,21 @@ const FileName = "litefaas.yaml"
 
 // Manifest is the on-disk shape of litefaas.yaml.
 type Manifest struct {
-	Name     string            `yaml:"name"`
-	Kind     string            `yaml:"kind"`
-	Runtime  string            `yaml:"runtime"`
-	Preset   string            `yaml:"preset,omitempty"`
-	Stack    string            `yaml:"stack,omitempty"` // Phase 7 pack id (optional override)
-	Handler  string            `yaml:"handler,omitempty"`
-	Image    string            `yaml:"image,omitempty"`
-	Port     int               `yaml:"port,omitempty"`
-	Memory   int               `yaml:"memory,omitempty"`
-	Timeout  string            `yaml:"timeout,omitempty"`
-	Health   string            `yaml:"health,omitempty"`
-	Triggers []types.Trigger   `yaml:"triggers,omitempty"`
-	Env      map[string]string `yaml:"env,omitempty"`
-	Build    *types.Build      `yaml:"build,omitempty"`
+	Name     string              `yaml:"name"`
+	Kind     string              `yaml:"kind"`
+	Runtime  string              `yaml:"runtime"`
+	Preset   string              `yaml:"preset,omitempty"`
+	Stack    string              `yaml:"stack,omitempty"` // Phase 7 pack id (optional override)
+	Handler  string              `yaml:"handler,omitempty"`
+	Image    string              `yaml:"image,omitempty"`
+	Port     int                 `yaml:"port,omitempty"`
+	Memory   int                 `yaml:"memory,omitempty"`
+	Timeout  string              `yaml:"timeout,omitempty"`
+	Health   string              `yaml:"health,omitempty"`
+	Triggers []types.Trigger     `yaml:"triggers,omitempty"`
+	Env      map[string]string   `yaml:"env,omitempty"`
+	Volumes  []types.VolumeMount `yaml:"volumes,omitempty"`
+	Build    *types.Build        `yaml:"build,omitempty"`
 }
 
 func Load(path string) (*Manifest, error) {
@@ -110,6 +111,11 @@ func (m *Manifest) normalize() error {
 			m.Health = "/healthz"
 		}
 	}
+	for _, v := range m.Volumes {
+		if err := types.ValidateVolumeMount(v); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
@@ -127,6 +133,7 @@ func (m *Manifest) Resource() types.Resource {
 		Health:   m.Health,
 		Triggers: m.Triggers,
 		Env:      m.Env,
+		Volumes:  m.Volumes,
 		Build:    m.Build,
 	}
 }

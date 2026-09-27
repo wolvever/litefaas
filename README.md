@@ -12,6 +12,17 @@ Poor man's serverless: a minimal **CLI + API** control plane to build and deploy
 - Presets: `spring-boot` (Java), `fastapi` (Python)
 - Stack packs (Phase 7): `java-spring-mybatis`, `java-spring-jpa`, `python-fastapi`, `python-flask-sqlalchemy`, `python-django`, `go-gin-gorm`, `node-express-prisma`, `node-nestjs-prisma`, `node-nextjs`
 
+## Framework support
+
+| Concept | What it is | When to use |
+|---------|------------|-------------|
+| **Runtime template** | `lf init --runtime go\|java\|python\|node\|…` | Greenfield hello |
+| **Preset** | `--preset spring-boot\|fastapi` init scaffold | Greenfield with a known framework |
+| **Stack pack** | Fingerprint + Dockerfile under `templates/stacks/` | Brownfield / zero-config `lf build` |
+| **`runtime: dockerfile`** | Escape hatch | Anything else |
+
+> **Presets scaffold new repos. Packs detect existing repos.** Both produce images that only need `$PORT` + `/healthz`. litefaasd never imports Spring, Django, Nest, etc.
+
 ## Install
 
 Requires [Go 1.22+](https://go.dev/dl/). Docker is required only for `lf build` / `lf deploy` / the live invoke path.
@@ -300,7 +311,39 @@ env:
 
 API: `PUT/GET/DELETE /v1/secrets/{name}`, `GET /v1/secrets` (names only).
 
+## TLS / HTTPS
+
+litefaasd speaks **HTTP** on `--addr` (demos use `127.0.0.1:8080`). For HTTPS, terminate TLS in front of it:
+
+1. **Host reverse proxy** — Caddy / Traefik / nginx with `reverse_proxy 127.0.0.1:8080` and automatic HTTPS.
+2. **Private network** — Tailscale / WireGuard without public DNS.
+3. Bind `0.0.0.0` only **behind** the TLS proxy; keep loopback for local demos.
+
+ACME / TLS inside litefaasd is out of scope for `v0.1.0-alpha`.
+
+## Named volumes
+
+Optional named Docker volumes in `litefaas.yaml`:
+
+```yaml
+volumes:
+  - name: data
+    mount: /app/data
+    # read_only: false
+```
+
+Docker volume name: `litefaas-<resource>-<name>` (e.g. `litefaas-orders-data`). Volumes are **created** on deploy and **left in place** on `lf delete` (operators may `docker volume rm` manually).
+
+## Health-gated deploy
+
+Deploy starts a **candidate** container (`litefaas-<name>-new`), waits for `health` (default `/healthz`, 30s), then removes the previous container and renames the candidate to `litefaas-<name>`. If health fails, the candidate is removed and the **previous** revision keeps running.
+
+## pglite-sidecar
+
+See [docs/pglite-sidecar.md](docs/pglite-sidecar.md) for wiring `DATABASE_URL` to a host Postgres/pglite sidecar via `host.docker.internal`.
+
 ## Health and version
+
 
 ```bash
 ./litefaasd --addr 127.0.0.1:8080 --data-dir ./data --no-auth

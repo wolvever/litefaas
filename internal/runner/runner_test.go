@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/wolvever/litefaas/internal/dockercli"
 	"github.com/wolvever/litefaas/internal/types"
@@ -29,7 +30,7 @@ func TestParseDockerPort(t *testing.T) {
 	}
 }
 
-func TestDockerDeployCommands(t *testing.T) {
+func TestDockerDeployHealthGatedCutover(t *testing.T) {
 	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = io.WriteString(w, "ok")
@@ -42,14 +43,11 @@ func TestDockerDeployCommands(t *testing.T) {
 
 	var calls [][]string
 	dockercli.Output = func(_ context.Context, name string, args ...string) (string, error) {
-		if name != "docker" {
-			t.Fatalf("name = %s", name)
-		}
 		calls = append(calls, append([]string{}, args...))
 		switch args[0] {
 		case "version":
 			return "27.0.0", nil
-		case "rm":
+		case "rm", "rename", "volume":
 			return "", nil
 		case "run":
 			return "abc123", nil
@@ -63,13 +61,10 @@ func TestDockerDeployCommands(t *testing.T) {
 
 	d := NewDocker()
 	res, err := d.Deploy(context.Background(), types.Resource{
-		Name:   "hello",
-		Kind:   types.KindBackend,
-		Image:  "hello:latest",
-		Port:   8080,
-		Memory: 64,
-		Health: "/healthz",
-		Env:    map[string]string{"GREETING": "hi"},
+		Name: "hello", Kind: types.KindBackend, Image: "hello:latest",
+		Port: 8080, Memory: 64, Health: "/healthz",
+		Env:     map[string]string{"GREETING": "hi"},
+		Volumes: []types.VolumeMount{{Name: "data", Mount: "/app/data"}},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -77,21 +72,79 @@ func TestDockerDeployCommands(t *testing.T) {
 	if res.Container != "litefaas-hello" || res.Endpoint != health.URL {
 		t.Fatalf("result = %+v", res)
 	}
-
 	var run []string
+	var renamed bool
+	all := ""
 	for _, c := range calls {
-		if len(c) > 0 && c[0] == "run" {
+		all += strings.Join(c, " ") + "\n"
+		if c[0] == "run" {
 			run = c
 		}
+		if c[0] == "rename" {
+			renamed = true
+		}
 	}
-	if run == nil {
-		t.Fatal("docker run not called")
+	if !renamed {
+		t.Fatal("expected rename")
 	}
 	joined := strings.Join(run, " ")
-	for _, want := range []string{"--name litefaas-hello", "--restart unless-stopped", "--label litefaas.kind=backend", "--memory 64m", "--memory-swap 64m", "-p 127.0.0.1::8080", "-e GREETING=hi", "-e PORT=8080", "hello:latest"} {
+	for _, want := range []string{"--name litefaas-hello-new", "--add-host host.docker.internal:host-gateway", "-v litefaas-hello-data:/app/data", "-e GREETING=hi"} {
 		if !strings.Contains(joined, want) {
-			t.Fatalf("run missing %q in %v", want, run)
+			t.Fatalf("missing %q in %v", want, run)
 		}
+	}
+	if !strings.Contains(all, "volume create litefaas-hello-data") {
+		t.Fatalf("no volume create: %s", all)
+	}
+}
+
+func TestDockerDeployRemovesCandidateOnHealthFail(t *testing.T) {
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	t.Cleanup(health.Close)
+	hostPort := strings.TrimPrefix(health.URL, "http://127.0.0.1:")
+	origOut := dockercli.Output
+	t.Cleanup(func() { dockercli.Output = origOut })
+	var rms []string
+	var renamed bool
+	dockercli.Output = func(_ context.Context, _ string, args ...string) (string, error) {
+		switch args[0] {
+		case "version":
+			return "27.0.0", nil
+		case "rm":
+			rms = append(rms, args[len(args)-1])
+			return "", nil
+		case "run":
+			return "cand", nil
+		case "port":
+			return "8080/tcp -> 127.0.0.1:" + hostPort, nil
+		case "rename":
+			renamed = true
+			return "", nil
+		default:
+			t.Fatalf("unexpected %v", args)
+		}
+		return "", nil
+	}
+	d := NewDocker()
+	d.HTTP = &http.Client{Timeout: 200 * time.Millisecond}
+	ctx, cancel := context.WithTimeout(context.Background(), 800*time.Millisecond)
+	defer cancel()
+	if _, err := d.Deploy(ctx, types.Resource{Name: "hello", Kind: types.KindBackend, Image: "x", Health: "/healthz"}); err == nil {
+		t.Fatal("expected failure")
+	}
+	if renamed {
+		t.Fatal("must not rename")
+	}
+	found := false
+	for _, n := range rms {
+		if n == "litefaas-hello-new" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("candidate not removed: %v", rms)
 	}
 }
 
@@ -101,27 +154,16 @@ func TestDockerFunctionRestartAndLogs(t *testing.T) {
 	}))
 	t.Cleanup(health.Close)
 	hostPort := strings.TrimPrefix(health.URL, "http://127.0.0.1:")
-
 	origOut, origExec := dockercli.Output, dockercli.Exec
-	t.Cleanup(func() {
-		dockercli.Output = origOut
-		dockercli.Exec = origExec
-	})
-
-	var run []string
-	var logArgs []string
-	dockercli.Output = func(_ context.Context, name string, args ...string) (string, error) {
-		if name != "docker" {
-			t.Fatalf("name = %s", name)
-		}
+	t.Cleanup(func() { dockercli.Output = origOut; dockercli.Exec = origExec })
+	var run, logArgs []string
+	dockercli.Output = func(_ context.Context, _ string, args ...string) (string, error) {
 		switch args[0] {
-		case "version":
-			return "27.0.0", nil
-		case "rm":
+		case "version", "rm", "rename":
 			return "", nil
 		case "run":
 			run = append([]string{}, args...)
-			return "abc123", nil
+			return "id", nil
 		case "port":
 			return "8080/tcp -> 127.0.0.1:" + hostPort, nil
 		default:
@@ -129,34 +171,24 @@ func TestDockerFunctionRestartAndLogs(t *testing.T) {
 		}
 		return "", nil
 	}
-	dockercli.Exec = func(_ context.Context, _, _ io.Writer, name string, args ...string) error {
-		if name != "docker" {
-			t.Fatalf("name = %s", name)
-		}
+	dockercli.Exec = func(_ context.Context, _, _ io.Writer, _ string, args ...string) error {
 		logArgs = append([]string{}, args...)
 		return nil
 	}
-
 	d := NewDocker()
-	if _, err := d.Deploy(context.Background(), types.Resource{
-		Name:  "hello",
-		Kind:  types.KindFunction,
-		Image: "hello:latest",
-	}); err != nil {
+	if _, err := d.Deploy(context.Background(), types.Resource{Name: "hello", Kind: types.KindFunction, Image: "hello:latest"}); err != nil {
 		t.Fatal(err)
 	}
-	joined := strings.Join(run, " ")
-	if !strings.Contains(joined, "--restart no") {
-		t.Fatalf("function run = %v", run)
+	if !strings.Contains(strings.Join(run, " "), "--restart no") {
+		t.Fatalf("run = %v", run)
 	}
-
 	var buf strings.Builder
 	if err := d.Logs(context.Background(), "hello", LogsOptions{Follow: true, Tail: 20}, &buf); err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"logs", "--timestamps", "--follow", "--tail", "20", "litefaas-hello"}
-	if strings.Join(logArgs, " ") != strings.Join(want, " ") {
-		t.Fatalf("logs args = %v", logArgs)
+	want := "logs --timestamps --follow --tail 20 litefaas-hello"
+	if strings.Join(logArgs, " ") != want {
+		t.Fatalf("logs = %v", logArgs)
 	}
 }
 
@@ -164,16 +196,26 @@ func TestEndpointMissing(t *testing.T) {
 	orig := dockercli.Output
 	t.Cleanup(func() { dockercli.Output = orig })
 	dockercli.Output = func(context.Context, string, ...string) (string, error) {
-		return "", fmtError("Error: No such container: litefaas-missing")
+		return "", &strErr{"Error: No such container: litefaas-missing"}
 	}
-	d := NewDocker()
-	_, err := d.Endpoint(context.Background(), "missing")
-	if err != ErrNotDeployed {
-		t.Fatalf("err = %v", err)
+	if _, err := NewDocker().Endpoint(context.Background(), "missing"); err != ErrNotDeployed {
+		t.Fatalf("err=%v", err)
 	}
 }
 
-func fmtError(s string) error { return &strErr{s} }
+func TestRemoveDoesNotDeleteVolumes(t *testing.T) {
+	orig := dockercli.Output
+	t.Cleanup(func() { dockercli.Output = orig })
+	dockercli.Output = func(_ context.Context, _ string, args ...string) (string, error) {
+		if len(args) > 0 && args[0] == "volume" {
+			t.Fatalf("Remove must not touch volumes: %v", args)
+		}
+		return "", nil
+	}
+	if err := NewDocker().Remove(context.Background(), "hello"); err != nil {
+		t.Fatal(err)
+	}
+}
 
 type strErr struct{ s string }
 
