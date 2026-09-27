@@ -87,6 +87,9 @@ func TestDockerDeployHealthGatedCutover(t *testing.T) {
 	if !renamed {
 		t.Fatal("expected rename")
 	}
+	if !strings.Contains(all, "rm -f litefaas-hello") {
+		t.Fatalf("expected rm of stable name after healthy candidate: %s", all)
+	}
 	joined := strings.Join(run, " ")
 	for _, want := range []string{"--name litefaas-hello-new", "--add-host host.docker.internal:host-gateway", "-v litefaas-hello-data:/app/data", "-e GREETING=hi"} {
 		if !strings.Contains(joined, want) {
@@ -145,6 +148,11 @@ func TestDockerDeployRemovesCandidateOnHealthFail(t *testing.T) {
 	}
 	if !found {
 		t.Fatalf("candidate not removed: %v", rms)
+	}
+	for _, n := range rms {
+		if n == "litefaas-hello" {
+			t.Fatalf("must not remove previous revision: %v", rms)
+		}
 	}
 }
 
