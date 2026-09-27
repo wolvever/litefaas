@@ -1,0 +1,14 @@
+{
+  "name": "fastify-tasks",
+  "version": "0.1.0",
+  "private": true,
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.20.0",
+    "fastify": "^4.28.1",
+    "prisma": "^5.20.0"
+  }
+}

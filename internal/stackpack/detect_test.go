@@ -12,7 +12,7 @@ func TestEmbeddedPacks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"go-gin-gorm", "java-spring-jpa", "java-spring-mybatis", "node-express-prisma", "node-nestjs-prisma", "node-nextjs", "python-django", "python-fastapi", "python-flask-sqlalchemy"}
+	want := []string{"go-chi-sqlx", "go-echo-gorm", "go-gin-gorm", "java-spring-jpa", "java-spring-mybatis", "node-express-prisma", "node-fastify-prisma", "node-nestjs-prisma", "node-nextjs", "python-django", "python-fastapi", "python-flask-sqlalchemy"}
 	got := cat.IDs()
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("ids = %v want %v", got, want)
@@ -49,6 +49,9 @@ func TestDetectExamples(t *testing.T) {
 		{"../../examples/stacks/portal", "node-nextjs"},
 		{"../../examples/stacks/blog", "python-django"},
 		{"../../examples/stacks/tasks", "node-nestjs-prisma"},
+		{"../../examples/stacks/echo-api", "go-echo-gorm"},
+		{"../../examples/stacks/chi-api", "go-chi-sqlx"},
+		{"../../examples/stacks/fastify-tasks", "node-fastify-prisma"},
 	}
 	for _, tc := range cases {
 		p, err := cat.Detect(tc.dir)
@@ -413,6 +416,128 @@ func TestDetectNextBeatsNest(t *testing.T) {
 	p, err := cat.Detect(dir)
 	if err != nil || p.ID != "node-nextjs" {
 		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+
+func TestDetectEchoGorm(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\nrequire github.com/labstack/echo/v4 v4.12.0\nrequire gorm.io/gorm v1.25.12\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "go-echo-gorm" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectGinBeatsEchoWhenBoth(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	mod := "module x\nrequire github.com/gin-gonic/gin v1.10.0\nrequire github.com/labstack/echo/v4 v4.12.0\nrequire gorm.io/gorm v1.25.12\n"
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte(mod), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "go-gin-gorm" {
+		t.Fatalf("got %+v err=%v (gin priority should win)", p, err)
+	}
+}
+
+func TestDetectChiSqlx(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\nrequire github.com/go-chi/chi/v5 v5.1.0\nrequire github.com/jmoiron/sqlx v1.4.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "go-chi-sqlx" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectChiPgx(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\nrequire github.com/go-chi/chi/v5 v5.1.0\nrequire github.com/jackc/pgx/v5 v5.7.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "go-chi-sqlx" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectRejectsEchoWithoutGorm(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module x\nrequire github.com/labstack/echo/v4 v4.12.0\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cat.Detect(dir); err == nil {
+		t.Fatal("echo without gorm should not match")
+	}
+}
+
+func TestDetectFastifyPrisma(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	pkg := "{\"dependencies\":{\"fastify\":\"^4.28.1\",\"@prisma/client\":\"^5.20.0\"}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "node-fastify-prisma" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectExpressBeatsFastifyWhenBoth(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	pkg := "{\"dependencies\":{\"express\":\"4.21.0\",\"fastify\":\"4.28.1\",\"@prisma/client\":\"5.20.0\"}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "node-express-prisma" {
+		t.Fatalf("got %+v err=%v (express priority should win)", p, err)
+	}
+}
+
+func TestDetectRejectsFastifyWithoutPrisma(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{\"dependencies\":{\"fastify\":\"4.28.1\"}}\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cat.Detect(dir); err == nil {
+		t.Fatal("fastify without prisma should not match")
 	}
 }
 

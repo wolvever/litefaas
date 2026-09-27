@@ -1,0 +1,21 @@
+id: go-chi-sqlx
+title: Chi + sqlx/pgx
+language: go
+runtime: go
+kind: backend
+memory: 128
+priority: 70
+description: Go HTTP API with Chi and sqlx or pgx. Bind 0.0.0.0:$PORT. Priority below echo-gorm (75).
+
+match:
+  - files: [go.mod]
+    contains:
+      - file: go.mod
+        any: [github.com/go-chi/chi]
+      - file: go.mod
+        any: [github.com/jmoiron/sqlx, github.com/jackc/pgx]
+
+hints:
+  sidecars: [postgres]
+  env:
+    DATABASE_URL: postgres://app:app@localhost:5432/app

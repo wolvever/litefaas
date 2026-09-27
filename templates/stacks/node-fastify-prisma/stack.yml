@@ -1,0 +1,28 @@
+id: node-fastify-prisma
+title: Fastify + Prisma
+language: node
+runtime: node
+kind: backend
+memory: 128
+priority: 75
+description: Node Fastify HTTP API with Prisma. npm start on 0.0.0.0:$PORT. Priority below express-prisma (80).
+
+match:
+  - files: [package.json, prisma/schema.prisma]
+    contains:
+      - file: package.json
+        any: [fastify]
+      - file: package.json
+        any: ["@prisma/client", prisma]
+  - files: [package.json]
+    contains:
+      - file: package.json
+        any: [fastify]
+      - file: package.json
+        any: ["@prisma/client", prisma]
+
+hints:
+  sidecars: [postgres, redis]
+  env:
+    DATABASE_URL: postgres://app:app@localhost:5432/app
+    REDIS_URL: redis://localhost:6379/0
