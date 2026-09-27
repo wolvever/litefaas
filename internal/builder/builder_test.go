@@ -176,6 +176,53 @@ func TestBuildDetectsFastAPI(t *testing.T) {
 	}
 }
 
+
+func TestBuildDetectsFlaskSQLAlchemy(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "notes")
+	copyTree(t, "../../examples/stacks/notes", dir)
+	builds := mockDocker(t)
+	out, err := Build(context.Background(), dir, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Detected || out.Stack != "python-flask-sqlalchemy" || out.Image != "notes:latest" {
+		t.Fatalf("result = %+v", out)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "gunicorn") {
+		t.Fatalf("expected flask pack Dockerfile, got %s", raw)
+	}
+	if len(*builds) != 1 {
+		t.Fatalf("builds = %v", *builds)
+	}
+}
+
+func TestBuildDetectsExpressPrisma(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "tickets")
+	copyTree(t, "../../examples/stacks/tickets", dir)
+	builds := mockDocker(t)
+	out, err := Build(context.Background(), dir, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Detected || out.Stack != "node-express-prisma" || out.Image != "tickets:latest" {
+		t.Fatalf("result = %+v", out)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "prisma generate") {
+		t.Fatalf("expected node pack Dockerfile, got %s", raw)
+	}
+	if len(*builds) != 1 {
+		t.Fatalf("builds = %v", *builds)
+	}
+}
+
 func TestBuildStackFlag(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module leftover\n"), 0o644); err != nil {

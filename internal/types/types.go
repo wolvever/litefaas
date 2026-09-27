@@ -42,16 +42,17 @@ const (
 	RuntimeGo         Runtime = "go"
 	RuntimeJava       Runtime = "java"
 	RuntimePython     Runtime = "python"
+	RuntimeNode       Runtime = "node"
 	RuntimeDockerfile Runtime = "dockerfile"
 	RuntimeStatic     Runtime = "static"
 )
 
 func ParseRuntime(s string) (Runtime, error) {
 	switch Runtime(s) {
-	case RuntimeGo, RuntimeJava, RuntimePython, RuntimeDockerfile, RuntimeStatic:
+	case RuntimeGo, RuntimeJava, RuntimePython, RuntimeNode, RuntimeDockerfile, RuntimeStatic:
 		return Runtime(s), nil
 	default:
-		return "", fmt.Errorf("runtime must be go|java|python|dockerfile|static, got %q", s)
+		return "", fmt.Errorf("runtime must be go|java|python|node|dockerfile|static, got %q", s)
 	}
 }
 
@@ -60,7 +61,7 @@ func DefaultKind(rt Runtime) Kind {
 	switch rt {
 	case RuntimeStatic:
 		return KindFrontend
-	case RuntimeDockerfile:
+	case RuntimeDockerfile, RuntimeNode:
 		return KindBackend
 	default:
 		return KindFunction

@@ -1,0 +1,7 @@
+__pycache__
+*.pyc
+.venv
+venv
+.git
+litefaas.yaml
+.pytest_cache

@@ -45,10 +45,12 @@ func templateRoot(rt types.Runtime, preset string) (fs.FS, string, error) {
 		return templates.Runtimes, "runtimes/python/http", nil
 	case types.RuntimeStatic:
 		return templates.Frontend, "frontend/static", nil
+	case types.RuntimeNode:
+		return nil, "", fmt.Errorf("runtime node has no lf init template yet; use a stack pack (node-express-prisma) or runtime dockerfile")
 	case types.RuntimeDockerfile:
 		return templates.Meta, "meta/dockerfile", nil
 	default:
-		return nil, "", fmt.Errorf("unknown runtime %q (want go|java|python|dockerfile|static)", rt)
+		return nil, "", fmt.Errorf("unknown runtime %q (want go|java|python|node|dockerfile|static)", rt)
 	}
 }
 

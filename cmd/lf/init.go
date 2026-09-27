@@ -12,7 +12,7 @@ import (
 func cmdInit(args []string) error {
 	fs := flag.NewFlagSet("init", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
-	runtime := fs.String("runtime", "", "runtime: go|java|python|dockerfile|static")
+	runtime := fs.String("runtime", "", "runtime: go|java|python|node|dockerfile|static")
 	kind := fs.String("kind", "", "kind: function|backend|frontend (default function; backend for dockerfile; frontend for static)")
 	preset := fs.String("preset", "", "optional preset: spring-boot (java) or fastapi (python)")
 	force := fs.Bool("force", false, "overwrite files in an existing directory")
@@ -22,7 +22,7 @@ func cmdInit(args []string) error {
 		return err
 	}
 	if len(rest) < 1 || *runtime == "" {
-		return fmt.Errorf("usage: lf init <name> --runtime go|java|python|dockerfile|static [--preset spring-boot|fastapi] [--kind function|backend|frontend]")
+		return fmt.Errorf("usage: lf init <name> --runtime go|java|python|node|dockerfile|static [--preset spring-boot|fastapi] [--kind function|backend|frontend]")
 	}
 	rt, err := types.ParseRuntime(*runtime)
 	if err != nil {

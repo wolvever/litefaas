@@ -12,7 +12,7 @@ func TestEmbeddedPacks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"go-gin-gorm", "java-spring-mybatis", "python-fastapi"}
+	want := []string{"go-gin-gorm", "java-spring-mybatis", "node-express-prisma", "python-fastapi", "python-flask-sqlalchemy"}
 	got := cat.IDs()
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("ids = %v want %v", got, want)
@@ -43,6 +43,8 @@ func TestDetectExamples(t *testing.T) {
 		{"../../examples/stacks/shop", "java-spring-mybatis"},
 		{"../../examples/stacks/catalog", "python-fastapi"},
 		{"../../examples/stacks/inventory", "go-gin-gorm"},
+		{"../../examples/stacks/notes", "python-flask-sqlalchemy"},
+		{"../../examples/stacks/tickets", "node-express-prisma"},
 	}
 	for _, tc := range cases {
 		p, err := cat.Detect(tc.dir)
@@ -92,7 +94,105 @@ func TestDetectRejectsNearMisses(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := cat.Detect(dir); err == nil {
-		t.Fatal("flask should not match fastapi pack")
+		t.Fatal("flask without sqlalchemy should not match")
+	}
+}
+
+
+func TestDetectFlaskSQLAlchemy(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("flask==3.0.3\nflask-sqlalchemy==3.1.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "python-flask-sqlalchemy" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectFlaskSQLAlchemyPyproject(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "pyproject.toml"), []byte("[project]\ndependencies = [\"flask>=3\", \"sqlalchemy>=2\"]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "python-flask-sqlalchemy" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectFastAPIBeatsFlaskWhenBoth(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("fastapi==0.115.0\nflask==3.0.3\nsqlalchemy==2.0.35\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "python-fastapi" {
+		t.Fatalf("got %+v err=%v (fastapi priority should win)", p, err)
+	}
+}
+
+func TestDetectExpressPrisma(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	pkg := `{"name":"x","dependencies":{"express":"^4.21.0","@prisma/client":"^5.20.0"}}`
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "node-express-prisma" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectExpressPrismaWithSchema(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	pkg := `{"dependencies":{"express":"4.21.0","prisma":"5.20.0"}}`
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "prisma"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "prisma", "schema.prisma"), []byte("generator client { provider = \"prisma-client-js\" }\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "node-express-prisma" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectRejectsExpressWithoutPrisma(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"express":"4.21.0"}}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := cat.Detect(dir); err == nil {
+		t.Fatal("express without prisma should not match")
 	}
 }
 
