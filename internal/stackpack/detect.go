@@ -22,7 +22,10 @@ func (c *Catalog) Detect(dir string) (*Pack, error) {
 		}
 	}
 	if len(hits) == 0 {
-		return nil, fmt.Errorf("no stack pack matched %s (add litefaas.yaml or --stack %s)", dir, strings.Join(c.IDs(), "|"))
+		return nil, fmt.Errorf(
+			"no stack pack matched %s\n\nTried fingerprint packs (embedded + LITEFAAS_STACKS_DIR). None matched.\n\nNext:\n  • lf stacks                          # see pack ids\n  • lf build . --stack <id>            # force a pack\n  • echo 'stack: <id>' > litefaas.yaml # pin\n  • lf init <name> --runtime …         # or write a full litefaas.yaml\n\nHints: ensure dependency manifests exist (package.json, requirements.txt, pom.xml, go.mod, …)\nand contain the framework strings the pack expects (see templates/stacks/*/stack.yml).",
+			dir,
+		)
 	}
 	if len(hits) == 1 {
 		return hits[0], nil
@@ -40,13 +43,21 @@ func (c *Catalog) Detect(dir string) (*Pack, error) {
 		}
 	}
 	if tie {
-		ids := make([]string, 0, len(hits))
+		tied := make([]*Pack, 0, len(hits))
 		for _, p := range hits {
 			if p.Priority == best.Priority {
-				ids = append(ids, p.ID)
+				tied = append(tied, p)
 			}
 		}
-		return nil, fmt.Errorf("ambiguous stack in %s: %s (set --stack or stack: in litefaas.yaml)", dir, strings.Join(ids, ", "))
+		parts := make([]string, 0, len(tied))
+		for _, p := range tied {
+			parts = append(parts, fmt.Sprintf("%s (priority %d)", p.ID, p.Priority))
+		}
+		example := tied[0].ID
+		return nil, fmt.Errorf(
+			"ambiguous stack in %s: %s\n\nMultiple packs matched with the same priority. Pin one:\n  lf build . --stack %s\n  # or\n  # litefaas.yaml → stack: %s",
+			dir, strings.Join(parts, ", "), example, example,
+		)
 	}
 	return best, nil
 }

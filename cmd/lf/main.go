@@ -59,6 +59,8 @@ func run(args []string) error {
 		return cmdToken(args[1:])
 	case "secret", "secrets":
 		return cmdSecret(args[1:])
+	case "stacks", "stack":
+		return cmdStacks(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q\n\nRun 'lf help' for usage", args[0])
 	}
@@ -83,6 +85,7 @@ Usage:
   lf metrics                 Basic control-plane counters (GET /v1/metrics)
   lf token                   Print the resolved bearer token
   lf secret set|get|list|delete  Manage encrypt-at-rest secrets (${secret:name} in env)
+  lf stacks [--json]          List embedded stack packs (and LITEFAAS_STACKS_DIR overlays)
   lf context                 Show / list / create / use CLI contexts
   lf help                    Show this help
 

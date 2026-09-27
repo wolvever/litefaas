@@ -1,0 +1,5 @@
+name: node-http
+runtime: node
+kind: backend
+language: node
+description: Generic Node HTTP backend (stdlib http, binds 0.0.0.0:$PORT)
