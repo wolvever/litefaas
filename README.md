@@ -10,7 +10,7 @@ Poor man's serverless: a minimal **CLI + API** control plane to build and deploy
 - Kinds: `function` | `backend` | `frontend`
 - Runtimes: `go` | `java` | `python` | `node` | `dockerfile` | `static`
 - Presets: `spring-boot` (Java), `fastapi` (Python)
-- Stack packs (Phase 7): `java-spring-mybatis`, `java-spring-jpa`, `python-fastapi`, `python-flask-sqlalchemy`, `python-django`, `go-gin-gorm`, `node-express-prisma`, `node-nestjs-prisma`, `node-nextjs`
+- Stack packs (Phase 7): `java-spring-mybatis`, `java-spring-jpa`, `python-fastapi`, `python-flask-sqlalchemy`, `python-django`, `go-gin-gorm`, `go-echo-gorm`, `go-chi-sqlx`, `node-express-prisma`, `node-fastify-prisma`, `node-nestjs-prisma`, `node-nextjs`
 
 ## Framework support
 
@@ -259,7 +259,7 @@ services:
 
 ## Zero-config stack detection (Phase 7)
 
-`litefaas.yaml` is optional. On a typical Spring+MyBatis/JPA, FastAPI, Flask+SQLAlchemy, Gin+GORM, Express+Prisma, or Next.js app, `lf build` / `lf deploy` fingerprint the directory, pick a **stack pack** (YAML + Dockerfile under `templates/stacks/`), and build. The daemon still only knows HTTP `$PORT` and Docker — packs are data, not framework imports.
+`litefaas.yaml` is optional. On a typical Spring+MyBatis/JPA, FastAPI, Flask+SQLAlchemy, Gin/Echo+GORM, Chi+sqlx, Express/Fastify+Prisma, Nest+Prisma, or Next.js app, `lf build` / `lf deploy` fingerprint the directory, pick a **stack pack** (YAML + Dockerfile under `templates/stacks/`), and build. The daemon still only knows HTTP `$PORT` and Docker — packs are data, not framework imports.
 
 ```bash
 # no litefaas.yaml in these dirs
@@ -267,8 +267,11 @@ services:
 ./lf build examples/stacks/library     # java-spring-jpa
 ./lf build examples/stacks/catalog     # python-fastapi
 ./lf build examples/stacks/inventory   # go-gin-gorm
+./lf build examples/stacks/echo-api    # go-echo-gorm
+./lf build examples/stacks/chi-api     # go-chi-sqlx
 ./lf build examples/stacks/notes       # python-flask-sqlalchemy
 ./lf build examples/stacks/tickets     # node-express-prisma
+./lf build examples/stacks/fastify-tasks # node-fastify-prisma
 ./lf build examples/stacks/portal      # node-nextjs
 ./lf build examples/stacks/blog        # python-django
 ./lf build examples/stacks/tasks       # node-nestjs-prisma
