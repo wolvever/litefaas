@@ -1,0 +1,37 @@
+id: java-spring-jpa
+title: Spring Boot + JPA
+language: java
+runtime: java
+kind: backend
+memory: 512
+priority: 85
+description: Spring Boot HTTP API with JPA/Hibernate (Maven). Bind 0.0.0.0:$PORT. Priority above java-spring-mybatis so JPA wins when both deps are present; pure MyBatis apps still match mybatis only.
+
+match:
+  - files: [pom.xml]
+    contains:
+      - file: pom.xml
+        any: [spring-boot, org.springframework.boot]
+      - file: pom.xml
+        any: [spring-boot-starter-data-jpa, hibernate-core, hibernate.core, jakarta.persistence]
+  - files: [build.gradle]
+    contains:
+      - file: build.gradle
+        any: [spring-boot, org.springframework.boot]
+      - file: build.gradle
+        any: [spring-boot-starter-data-jpa, hibernate-core, jakarta.persistence]
+  - files: [build.gradle.kts]
+    contains:
+      - file: build.gradle.kts
+        any: [spring-boot, org.springframework.boot]
+      - file: build.gradle.kts
+        any: [spring-boot-starter-data-jpa, hibernate-core, jakarta.persistence]
+
+hints:
+  sidecars: [postgres, redis]
+  env:
+    SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/app
+    SPRING_DATASOURCE_USERNAME: app
+    SPRING_DATASOURCE_PASSWORD: app
+    DATABASE_URL: postgres://app:app@localhost:5432/app
+    REDIS_URL: redis://localhost:6379/0

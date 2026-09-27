@@ -1,0 +1,8 @@
+node_modules
+npm-debug.log
+.next
+.git
+litefaas.yaml
+.env
+.env.*
+coverage

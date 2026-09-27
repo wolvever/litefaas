@@ -12,7 +12,7 @@ func TestEmbeddedPacks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"go-gin-gorm", "java-spring-mybatis", "node-express-prisma", "python-fastapi", "python-flask-sqlalchemy"}
+	want := []string{"go-gin-gorm", "java-spring-jpa", "java-spring-mybatis", "node-express-prisma", "node-nextjs", "python-fastapi", "python-flask-sqlalchemy"}
 	got := cat.IDs()
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("ids = %v want %v", got, want)
@@ -45,6 +45,8 @@ func TestDetectExamples(t *testing.T) {
 		{"../../examples/stacks/inventory", "go-gin-gorm"},
 		{"../../examples/stacks/notes", "python-flask-sqlalchemy"},
 		{"../../examples/stacks/tickets", "node-express-prisma"},
+		{"../../examples/stacks/library", "java-spring-jpa"},
+		{"../../examples/stacks/portal", "node-nextjs"},
 	}
 	for _, tc := range cases {
 		p, err := cat.Detect(tc.dir)
@@ -99,6 +101,115 @@ func TestDetectRejectsNearMisses(t *testing.T) {
 }
 
 
+func TestDetectSpringJPA(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	pom := "<project><parent><artifactId>spring-boot-starter-parent</artifactId></parent>\n" +
+		"<dependencies>\n" +
+		"  <dependency><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>\n" +
+		"</dependencies></project>\n"
+	if err := os.WriteFile(filepath.Join(dir, "pom.xml"), []byte(pom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "java-spring-jpa" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectSpringJPABeatsMyBatisWhenBoth(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	pom := "<project>\n" +
+		"<dependency><artifactId>spring-boot-starter-web</artifactId></dependency>\n" +
+		"<dependency><artifactId>spring-boot-starter-data-jpa</artifactId></dependency>\n" +
+		"<dependency><artifactId>mybatis-spring-boot-starter</artifactId></dependency>\n" +
+		"</project>\n"
+	if err := os.WriteFile(filepath.Join(dir, "pom.xml"), []byte(pom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "java-spring-jpa" {
+		t.Fatalf("got %+v err=%v (jpa priority should win)", p, err)
+	}
+}
+
+func TestDetectMyBatisNotStolenByJPA(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	pom := "<project>\n" +
+		"<dependency><artifactId>spring-boot-starter-web</artifactId></dependency>\n" +
+		"<dependency><artifactId>mybatis-spring-boot-starter</artifactId></dependency>\n" +
+		"</project>\n"
+	if err := os.WriteFile(filepath.Join(dir, "pom.xml"), []byte(pom), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "java-spring-mybatis" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectNextJS(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	pkg := "{\"name\":\"x\",\"dependencies\":{\"next\":\"14.2.13\",\"react\":\"18.3.1\"}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "node-nextjs" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectNextJSWithConfig(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	pkg := "{\"dependencies\":{\"next\":\"14.2.13\"}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "next.config.mjs"), []byte("export default { output: 'standalone' };\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "node-nextjs" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectNextJSBeatsExpressPrisma(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	pkg := "{\"dependencies\":{\"next\":\"14.2.13\",\"express\":\"4.21.0\",\"@prisma/client\":\"5.20.0\",\"prisma\":\"5.20.0\"}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "node-nextjs" {
+		t.Fatalf("got %+v err=%v (next should win)", p, err)
+	}
+}
+
 func TestDetectFlaskSQLAlchemy(t *testing.T) {
 	cat, err := OpenEmbedded()
 	if err != nil {
@@ -150,8 +261,8 @@ func TestDetectExpressPrisma(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	pkg := `{"name":"x","dependencies":{"express":"^4.21.0","@prisma/client":"^5.20.0"}}`
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg+"\n"), 0o644); err != nil {
+	pkg := "{\"name\":\"x\",\"dependencies\":{\"express\":\"^4.21.0\",\"@prisma/client\":\"^5.20.0\"}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	p, err := cat.Detect(dir)
@@ -166,8 +277,8 @@ func TestDetectExpressPrismaWithSchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	pkg := `{"dependencies":{"express":"4.21.0","prisma":"5.20.0"}}`
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg+"\n"), 0o644); err != nil {
+	pkg := "{\"dependencies\":{\"express\":\"4.21.0\",\"prisma\":\"5.20.0\"}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.MkdirAll(filepath.Join(dir, "prisma"), 0o755); err != nil {
@@ -188,7 +299,7 @@ func TestDetectRejectsExpressWithoutPrisma(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(`{"dependencies":{"express":"4.21.0"}}`+"\n"), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte("{\"dependencies\":{\"express\":\"4.21.0\"}}\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := cat.Detect(dir); err == nil {

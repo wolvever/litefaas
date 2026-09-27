@@ -223,6 +223,53 @@ func TestBuildDetectsExpressPrisma(t *testing.T) {
 	}
 }
 
+
+func TestBuildDetectsSpringJPA(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "library")
+	copyTree(t, "../../examples/stacks/library", dir)
+	builds := mockDocker(t)
+	out, err := Build(context.Background(), dir, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Detected || out.Stack != "java-spring-jpa" || out.Image != "library:latest" {
+		t.Fatalf("result = %+v", out)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "java-spring-jpa") {
+		t.Fatalf("expected jpa pack Dockerfile, got %s", raw)
+	}
+	if len(*builds) != 1 {
+		t.Fatalf("builds = %v", *builds)
+	}
+}
+
+func TestBuildDetectsNextJS(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "portal")
+	copyTree(t, "../../examples/stacks/portal", dir)
+	builds := mockDocker(t)
+	out, err := Build(context.Background(), dir, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Detected || out.Stack != "node-nextjs" || out.Image != "portal:latest" {
+		t.Fatalf("result = %+v", out)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "Dockerfile"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), "next") {
+		t.Fatalf("expected next pack Dockerfile, got %s", raw)
+	}
+	if len(*builds) != 1 {
+		t.Fatalf("builds = %v", *builds)
+	}
+}
+
 func TestBuildStackFlag(t *testing.T) {
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "go.mod"), []byte("module leftover\n"), 0o644); err != nil {

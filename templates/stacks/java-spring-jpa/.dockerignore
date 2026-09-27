@@ -1,0 +1,7 @@
+target
+.gradle
+build
+.idea
+*.iml
+.git
+litefaas.yaml
