@@ -3,6 +3,8 @@ package types
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 	"time"
 )
 
@@ -101,9 +103,17 @@ type Resource struct {
 	Health    string            `json:"health,omitempty"`
 	Triggers  []Trigger         `json:"triggers,omitempty"`
 	Env       map[string]string `json:"env,omitempty"`
+	Volumes   []VolumeMount     `json:"volumes,omitempty"`
 	Build     *Build            `json:"build,omitempty"`
 	CreatedAt time.Time         `json:"created_at"`
 	UpdatedAt time.Time         `json:"updated_at"`
+}
+
+// VolumeMount is a named Docker volume mounted into the container.
+type VolumeMount struct {
+	Name     string `json:"name" yaml:"name"`
+	Mount    string `json:"mount" yaml:"mount"`
+	ReadOnly bool   `json:"read_only,omitempty" yaml:"read_only,omitempty"`
 }
 
 // Revision is a recorded deploy of an image (runner may still be a stub).
@@ -119,4 +129,22 @@ type Revision struct {
 type ResourceView struct {
 	Resource
 	Revisions []Revision `json:"revisions,omitempty"`
+}
+
+var volumeNameRE = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,31}$`)
+
+// ValidateVolumeMount checks name/mount for named Docker volumes.
+func ValidateVolumeMount(v VolumeMount) error {
+	if !volumeNameRE.MatchString(v.Name) {
+		return fmt.Errorf("volume name %q invalid (want [a-z0-9][a-z0-9_-]{0,31})", v.Name)
+	}
+	if !strings.HasPrefix(v.Mount, "/") || strings.Contains(v.Mount, "..") {
+		return fmt.Errorf("volume mount %q must be an absolute path without ..", v.Mount)
+	}
+	return nil
+}
+
+// DockerVolumeName is litefaas-<resource>-<volume>.
+func DockerVolumeName(resource, volume string) string {
+	return "litefaas-" + resource + "-" + volume
 }

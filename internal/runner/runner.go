@@ -18,13 +18,11 @@ import (
 const (
 	containerPrefix = "litefaas-"
 	defaultMemory   = 128
-	healthWait      = 15 * time.Second
+	healthWait      = 30 * time.Second
 	healthEvery     = 250 * time.Millisecond
 )
 
-var (
-	ErrNotDeployed = errors.New("not deployed")
-)
+var ErrNotDeployed = errors.New("not deployed")
 
 // Result is a running container reachable from the gateway.
 type Result struct {
@@ -55,9 +53,9 @@ func NewDocker() *Docker {
 	return &Docker{HTTP: &http.Client{Timeout: 2 * time.Second}}
 }
 
-func ContainerName(name string) string {
-	return containerPrefix + name
-}
+func ContainerName(name string) string { return containerPrefix + name }
+
+func candidateName(name string) string { return containerPrefix + name + "-new" }
 
 func (d *Docker) Deploy(ctx context.Context, res types.Resource) (Result, error) {
 	if err := dockercli.Available(ctx); err != nil {
@@ -74,11 +72,12 @@ func (d *Docker) Deploy(ctx context.Context, res types.Resource) (Result, error)
 	if mem <= 0 {
 		mem = defaultMemory
 	}
-	cname := ContainerName(res.Name)
-	_ = d.Remove(ctx, res.Name)
-
-	// Backends and frontends are always-on (RFC-0001 §5.2).
-	// Functions use --restart no so the idle TTL can leave them stopped.
+	stable := ContainerName(res.Name)
+	cand := candidateName(res.Name)
+	_ = d.rmContainer(ctx, cand)
+	if err := d.ensureVolumes(ctx, res); err != nil {
+		return Result{}, err
+	}
 	restart := "unless-stopped"
 	if !types.AlwaysOn(res.Kind) {
 		restart = "no"
@@ -86,41 +85,79 @@ func (d *Docker) Deploy(ctx context.Context, res types.Resource) (Result, error)
 	memFlag := fmt.Sprintf("%dm", mem)
 	args := []string{
 		"run", "-d",
-		"--name", cname,
+		"--name", cand,
 		"--restart", restart,
 		"--label", "litefaas.managed=1",
 		"--label", "litefaas.name=" + res.Name,
 		"--label", "litefaas.kind=" + string(res.Kind),
+		"--add-host", "host.docker.internal:host-gateway",
 		"--memory", memFlag,
-		"--memory-swap", memFlag, // hard cap: no extra swap
+		"--memory-swap", memFlag,
 		"-p", fmt.Sprintf("127.0.0.1::%d", port),
+	}
+	for _, v := range res.Volumes {
+		vol := types.DockerVolumeName(res.Name, v.Name)
+		spec := vol + ":" + v.Mount
+		if v.ReadOnly {
+			spec += ":ro"
+		}
+		args = append(args, "-v", spec)
 	}
 	for k, v := range res.Env {
 		args = append(args, "-e", k+"="+v)
 	}
 	args = append(args, "-e", fmt.Sprintf("PORT=%d", port), res.Image)
-
 	if _, err := dockercli.Output(ctx, "docker", args...); err != nil {
 		return Result{}, fmt.Errorf("docker run: %w", err)
 	}
-	ep, err := d.Endpoint(ctx, res.Name)
+	ep, err := d.endpointOf(ctx, cand)
 	if err != nil {
-		_ = d.Remove(ctx, res.Name)
+		_ = d.rmContainer(ctx, cand)
 		return Result{}, err
 	}
 	if err := d.waitHealthy(ctx, ep, res.Health); err != nil {
-		_ = d.Remove(ctx, res.Name)
+		_ = d.rmContainer(ctx, cand)
 		return Result{}, err
 	}
-	return Result{Container: cname, Endpoint: ep}, nil
+	_ = d.rmContainer(ctx, stable)
+	if _, err := dockercli.Output(ctx, "docker", "rename", cand, stable); err != nil {
+		return Result{}, fmt.Errorf("docker rename %s -> %s: %w (candidate left as %s)", cand, stable, err, cand)
+	}
+	ep, err = d.endpointOf(ctx, stable)
+	if err != nil {
+		return Result{}, err
+	}
+	return Result{Container: stable, Endpoint: ep}, nil
 }
 
-func (d *Docker) Remove(ctx context.Context, name string) error {
-	_, err := dockercli.Output(ctx, "docker", "rm", "-f", ContainerName(name))
+func (d *Docker) ensureVolumes(ctx context.Context, res types.Resource) error {
+	for _, v := range res.Volumes {
+		if err := types.ValidateVolumeMount(v); err != nil {
+			return err
+		}
+		name := types.DockerVolumeName(res.Name, v.Name)
+		if _, err := dockercli.Output(ctx, "docker", "volume", "create", name); err != nil {
+			msg := strings.ToLower(err.Error())
+			if !strings.Contains(msg, "already") {
+				return fmt.Errorf("docker volume create %s: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func (d *Docker) rmContainer(ctx context.Context, cname string) error {
+	_, err := dockercli.Output(ctx, "docker", "rm", "-f", cname)
 	if err == nil || isMissingContainer(err) {
 		return nil
 	}
 	return err
+}
+
+func (d *Docker) Remove(ctx context.Context, name string) error {
+	// Preserve named volumes across delete.
+	_ = d.rmContainer(ctx, candidateName(name))
+	return d.rmContainer(ctx, ContainerName(name))
 }
 
 func (d *Docker) Logs(ctx context.Context, name string, opts LogsOptions, w io.Writer) error {
@@ -149,7 +186,11 @@ func (d *Docker) Logs(ctx context.Context, name string, opts LogsOptions, w io.W
 }
 
 func (d *Docker) Endpoint(ctx context.Context, name string) (string, error) {
-	out, err := dockercli.Output(ctx, "docker", "port", ContainerName(name))
+	return d.endpointOf(ctx, ContainerName(name))
+}
+
+func (d *Docker) endpointOf(ctx context.Context, cname string) (string, error) {
+	out, err := dockercli.Output(ctx, "docker", "port", cname)
 	if err != nil {
 		if isMissingContainer(err) {
 			return "", ErrNotDeployed
@@ -209,7 +250,6 @@ func (d *Docker) waitHealthy(ctx context.Context, endpoint, health string) error
 }
 
 func parseDockerPort(out string) (string, error) {
-	// "8080/tcp -> 127.0.0.1:32768" or "127.0.0.1:32768"
 	line := strings.TrimSpace(out)
 	if line == "" {
 		return "", fmt.Errorf("docker port: empty output")
@@ -220,11 +260,7 @@ func parseDockerPort(out string) (string, error) {
 	if i := strings.LastIndex(line, "->"); i >= 0 {
 		line = strings.TrimSpace(line[i+2:])
 	}
-	_, port, ok := strings.Cut(line, ":")
-	if !ok {
-		port = line
-	}
-	// last colon for [ipv6]:port
+	port := line
 	if i := strings.LastIndex(line, ":"); i >= 0 {
 		port = line[i+1:]
 	}

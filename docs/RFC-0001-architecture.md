@@ -178,6 +178,9 @@ Each runtime/preset template provides: `template.yml`, `Dockerfile` (and optiona
 
 ### 8.1 Stack packs (Phase 7)
 
+**Presets scaffold new repos. Packs detect existing repos.** litefaasd never imports application frameworks.
+
+
 A **stack** is language + web framework + ORM/SQL (+ optional KV/Redis hints). Packs are YAML + Dockerfile under `templates/stacks/` (embedded in `lf`, overridable via `LITEFAAS_STACKS_DIR`). `litefaasd` does not import packs or frameworks.
 
 Detection is a small AND/OR fingerprint matcher (`files` must exist; `contains.any` is a substring check). No rules engine in the daemon.
@@ -252,7 +255,7 @@ Edge routing example:
 
 - Control plane DB: sqlite file under `~/.litefaas/` or `--data-dir`.
 - Secrets: v0.1 store encrypted-at-rest with a host key file, inject as env at deploy. No external vault required.
-- App data volumes: optional named Docker volumes declared later; out of scope for first functions demo.
+- App data volumes: optional named Docker volumes (`volumes:` in manifest → `litefaas-<res>-<name>`); not removed on delete.
 
 ## 14. Relation to other work
 
