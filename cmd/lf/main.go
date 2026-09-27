@@ -77,7 +77,7 @@ Usage:
   lf deploy [path] [--stack ID] Register + deploy the container via the API
   lf invoke <name> [-d BODY] POST /v1/invoke/{name}
   lf list                    List resources
-  lf delete <name>           Delete a resource (and its container)
+  lf delete <name> [--prune-volumes]  Delete resource (opt-in volume prune)
   lf logs <name> [-f]        Stream container logs (GET /v1/functions/{name}/logs)
   lf routes                  List the edge route table (GET /v1/routes)
   lf routes set <file.json>  Replace the route table (PUT /v1/routes)
@@ -194,18 +194,31 @@ func cmdList(args []string) error {
 }
 
 func cmdDelete(args []string) error {
-	gw, tok, dir, rest := gatewayFlags(args)
-	if len(rest) < 1 {
-		return fmt.Errorf("usage: lf delete <name>")
-	}
-	c, err := resolveClient(gw, tok, dir)
+	fs := flag.NewFlagSet("delete", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	gw := fs.String("gateway", "", "litefaasd URL (overrides context)")
+	tok := fs.String("token", "", "bearer token (overrides context / LITEFAAS_TOKEN)")
+	dir := fs.String("config-dir", "", "CLI config directory (default ~/.litefaas)")
+	prune := fs.Bool("prune-volumes", false, "also remove named Docker volumes for this resource")
+	rest, err := parseMixed(fs, args)
 	if err != nil {
 		return err
 	}
-	if err := c.Delete(rest[0]); err != nil {
+	if len(rest) < 1 {
+		return fmt.Errorf("usage: lf delete <name> [--prune-volumes]")
+	}
+	c, err := resolveClient(*gw, *tok, *dir)
+	if err != nil {
 		return err
 	}
-	fmt.Printf("deleted %s\n", rest[0])
+	if err := c.Delete(rest[0], *prune); err != nil {
+		return err
+	}
+	if *prune {
+		fmt.Printf("deleted %s (volumes pruned)\n", rest[0])
+	} else {
+		fmt.Printf("deleted %s\n", rest[0])
+	}
 	return nil
 }
 

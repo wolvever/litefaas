@@ -228,3 +228,47 @@ func TestRemoveDoesNotDeleteVolumes(t *testing.T) {
 type strErr struct{ s string }
 
 func (e *strErr) Error() string { return e.s }
+
+func TestRemovePrunesVolumes(t *testing.T) {
+	orig := dockercli.Output
+	t.Cleanup(func() { dockercli.Output = orig })
+	var saw [][]string
+	dockercli.Output = func(_ context.Context, _ string, args ...string) (string, error) {
+		saw = append(saw, append([]string{}, args...))
+		return "", nil
+	}
+	opts := RemoveOpts{
+		PruneVolumes: true,
+		Volumes:      []types.VolumeMount{{Name: "data", Mount: "/app/data"}},
+	}
+	if err := NewDocker().Remove(context.Background(), "hello", opts); err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, args := range saw {
+		if len(args) >= 3 && args[0] == "volume" && args[1] == "rm" && args[2] == "litefaas-hello-data" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("expected volume rm litefaas-hello-data; saw %v", saw)
+	}
+}
+
+func TestRemovePruneIgnoresMissingVolume(t *testing.T) {
+	orig := dockercli.Output
+	t.Cleanup(func() { dockercli.Output = orig })
+	dockercli.Output = func(_ context.Context, _ string, args ...string) (string, error) {
+		if len(args) >= 2 && args[0] == "volume" && args[1] == "rm" {
+			return "", &strErr{"Error: No such volume: litefaas-hello-data"}
+		}
+		return "", nil
+	}
+	opts := RemoveOpts{
+		PruneVolumes: true,
+		Volumes:      []types.VolumeMount{{Name: "data", Mount: "/data"}},
+	}
+	if err := NewDocker().Remove(context.Background(), "hello", opts); err != nil {
+		t.Fatal(err)
+	}
+}

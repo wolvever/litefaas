@@ -278,8 +278,17 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	name := r.PathValue("name")
+	prune := queryBool(r, "prune_volumes")
+	var vols []types.VolumeMount
+	if res, err := s.store.Get(name); err == nil {
+		vols = res.Volumes
+	}
 	if s.runner != nil {
-		_ = s.runner.Remove(r.Context(), name)
+		opts := runner.RemoveOpts{PruneVolumes: prune, Volumes: vols}
+		if err := s.runner.Remove(r.Context(), name, opts); err != nil {
+			writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+			return
+		}
 	}
 	err := s.store.Delete(name)
 	if errors.Is(err, store.ErrNotFound) {

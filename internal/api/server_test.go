@@ -400,3 +400,42 @@ func TestInvokeWakesStoppedFunction(t *testing.T) {
 		t.Fatal("expected redeploy on wake")
 	}
 }
+
+func TestDeletePruneVolumes(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	fake := runner.NewFake()
+	srv := New(Options{Store: st, Token: "secret", Runner: fake})
+	t.Cleanup(srv.Close)
+
+	res := types.Resource{
+		Name:    "orders",
+		Kind:    types.KindBackend,
+		Runtime: types.RuntimeGo,
+		Image:   "orders:1",
+		Volumes: []types.VolumeMount{{Name: "data", Mount: "/app/data"}},
+	}
+	if _, err := st.Create(res); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodDelete, "/v1/functions/orders?prune_volumes=1", nil)
+	req.Header.Set("Authorization", "Bearer secret")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status = %d body=%s", rec.Code, rec.Body.String())
+	}
+	if len(fake.Removed) != 1 || fake.Removed[0] != "orders" {
+		t.Fatalf("removed = %v", fake.Removed)
+	}
+	if len(fake.RemoveOpts) != 1 || !fake.RemoveOpts[0].PruneVolumes {
+		t.Fatalf("RemoveOpts = %+v", fake.RemoveOpts)
+	}
+	if len(fake.RemoveOpts[0].Volumes) != 1 || fake.RemoveOpts[0].Volumes[0].Name != "data" {
+		t.Fatalf("volumes = %+v", fake.RemoveOpts[0].Volumes)
+	}
+}

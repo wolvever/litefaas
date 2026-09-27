@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 
 	"github.com/wolvever/litefaas/internal/api"
 	"github.com/wolvever/litefaas/internal/config"
@@ -23,12 +24,20 @@ func main() {
 	tokFlag := flag.String("token", os.Getenv("LITEFAAS_TOKEN"), "shared bearer token (LITEFAAS_TOKEN)")
 	noAuth := flag.Bool("no-auth", false, "disable bearer auth (open control plane)")
 	idleTTL := flag.Duration("idle-ttl", types.DefaultIdleTTL, "stop idle functions (0 disables)")
+	tlsCert := flag.String("tls-cert", "", "TLS certificate file (requires --tls-key)")
+	tlsKey := flag.String("tls-key", "", "TLS private key file (requires --tls-cert)")
 	showVersion := flag.Bool("version", false, "print version and exit")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Printf("litefaasd %s (%s)\n", version.Version, version.Commit)
 		return
+	}
+
+	https, err := requireTLSPair(*tlsCert, *tlsKey)
+	if err != nil {
+		log.Printf("tls: %v", err)
+		os.Exit(1)
 	}
 
 	st, err := store.Open(*dataDir)
@@ -74,9 +83,32 @@ func main() {
 	if *idleTTL > 0 {
 		idle = idleTTL.String()
 	}
-	log.Printf("litefaasd %s listening on http://%s data-dir=%s idle-ttl=%s", version.Version, *addr, st.Dir(), idle)
-	if err := http.ListenAndServe(*addr, srv); err != nil {
+	scheme := "http"
+	if https {
+		scheme = "https"
+	}
+	log.Printf("litefaasd %s listening on %s://%s data-dir=%s idle-ttl=%s", version.Version, scheme, *addr, st.Dir(), idle)
+	if https {
+		err = http.ListenAndServeTLS(*addr, *tlsCert, *tlsKey, srv)
+	} else {
+		err = http.ListenAndServe(*addr, srv)
+	}
+	if err != nil {
 		log.Printf("listen: %v", err)
 		os.Exit(1)
 	}
+}
+
+// requireTLSPair returns whether to serve HTTPS.
+// Both cert and key must be set together; a single flag is a fatal misconfiguration.
+func requireTLSPair(cert, key string) (https bool, err error) {
+	cert = strings.TrimSpace(cert)
+	key = strings.TrimSpace(key)
+	if cert == "" && key == "" {
+		return false, nil
+	}
+	if cert == "" || key == "" {
+		return false, fmt.Errorf("both --tls-cert and --tls-key are required together")
+	}
+	return true, nil
 }

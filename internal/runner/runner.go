@@ -36,10 +36,16 @@ type LogsOptions struct {
 	Tail   int
 }
 
+// RemoveOpts controls optional behavior when removing a deployed resource.
+type RemoveOpts struct {
+	PruneVolumes bool
+	Volumes      []types.VolumeMount
+}
+
 // Runner deploys images as containers and reports their local endpoint.
 type Runner interface {
 	Deploy(ctx context.Context, res types.Resource) (Result, error)
-	Remove(ctx context.Context, name string) error
+	Remove(ctx context.Context, name string, opts ...RemoveOpts) error
 	Endpoint(ctx context.Context, name string) (string, error)
 	Logs(ctx context.Context, name string, opts LogsOptions, w io.Writer) error
 }
@@ -154,10 +160,37 @@ func (d *Docker) rmContainer(ctx context.Context, cname string) error {
 	return err
 }
 
-func (d *Docker) Remove(ctx context.Context, name string) error {
-	// Preserve named volumes across delete.
+func (d *Docker) Remove(ctx context.Context, name string, opts ...RemoveOpts) error {
+	// Preserve named volumes across delete unless PruneVolumes is set.
 	_ = d.rmContainer(ctx, candidateName(name))
-	return d.rmContainer(ctx, ContainerName(name))
+	if err := d.rmContainer(ctx, ContainerName(name)); err != nil {
+		return err
+	}
+	var o RemoveOpts
+	if len(opts) > 0 {
+		o = opts[0]
+	}
+	if !o.PruneVolumes {
+		return nil
+	}
+	for _, v := range o.Volumes {
+		vol := types.DockerVolumeName(name, v.Name)
+		if _, err := dockercli.Output(ctx, "docker", "volume", "rm", vol); err != nil {
+			if isMissingVolume(err) {
+				continue
+			}
+			return fmt.Errorf("docker volume rm %s: %w", vol, err)
+		}
+	}
+	return nil
+}
+
+func isMissingVolume(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "no such volume") || strings.Contains(msg, "not found")
 }
 
 func (d *Docker) Logs(ctx context.Context, name string, opts LogsOptions, w io.Writer) error {
