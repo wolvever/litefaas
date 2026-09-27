@@ -1,0 +1,43 @@
+id: python-django
+title: Django
+language: python
+runtime: python
+kind: backend
+memory: 128
+priority: 65
+description: Django + gunicorn (preferred). Bind 0.0.0.0:$PORT. Priority above flask (60), below fastapi (70).
+
+match:
+  - files: [manage.py, requirements.txt]
+    contains:
+      - file: requirements.txt
+        any: [django]
+  - files: [manage.py, pyproject.toml]
+    contains:
+      - file: pyproject.toml
+        any: [django]
+  - files: [manage.py, Pipfile]
+    contains:
+      - file: Pipfile
+        any: [django]
+  - files: [requirements.txt]
+    contains:
+      - file: requirements.txt
+        any: [django]
+  - files: [pyproject.toml]
+    contains:
+      - file: pyproject.toml
+        any: [django]
+  - files: [Pipfile]
+    contains:
+      - file: Pipfile
+        any: [django]
+
+hints:
+  sidecars: [postgres, redis]
+  env:
+    DATABASE_URL: postgres://app:app@localhost:5432/app
+    REDIS_URL: redis://localhost:6379/0
+    DJANGO_SETTINGS_MODULE: config.settings
+    GUNICORN_APP: config.wsgi:application
+    PORT: "8080"

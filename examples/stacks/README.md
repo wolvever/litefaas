@@ -11,6 +11,8 @@ These directories look like ordinary apps: **no `litefaas.yaml`**. `lf build` / 
 ./lf build examples/stacks/tickets
 ./lf build examples/stacks/library
 ./lf build examples/stacks/portal
+./lf build examples/stacks/blog
+./lf build examples/stacks/tasks
 
 # pin if detection is wrong
 ./lf build examples/stacks/catalog --stack python-fastapi
@@ -28,5 +30,7 @@ These directories look like ordinary apps: **no `litefaas.yaml`**. `lf build` / 
 | `tickets` | `node-express-prisma` | Express + Prisma |
 | `library` | `java-spring-jpa` | Spring Boot + JPA |
 | `portal` | `node-nextjs` | Next.js SSR |
+| `blog` | `python-django` | Django |
+| `tasks` | `node-nestjs-prisma` | NestJS + Prisma |
 
 Postgres/Redis are **hints only**. litefaas does not start databases; set the env vars printed after detect (or in each pack’s `stack.yml`).

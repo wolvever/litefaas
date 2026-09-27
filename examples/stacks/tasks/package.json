@@ -1,0 +1,16 @@
+{
+  "name": "tasks",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "build": "mkdir -p dist && cp src/main.js dist/main.js",
+    "start": "node dist/main.js",
+    "start:prod": "node dist/main.js"
+  },
+  "dependencies": {
+    "@nestjs/core": "^10.4.4",
+    "@nestjs/common": "^10.4.4",
+    "@prisma/client": "^5.20.0",
+    "prisma": "^5.20.0"
+  }
+}

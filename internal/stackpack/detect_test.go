@@ -12,7 +12,7 @@ func TestEmbeddedPacks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"go-gin-gorm", "java-spring-jpa", "java-spring-mybatis", "node-express-prisma", "node-nextjs", "python-fastapi", "python-flask-sqlalchemy"}
+	want := []string{"go-gin-gorm", "java-spring-jpa", "java-spring-mybatis", "node-express-prisma", "node-nestjs-prisma", "node-nextjs", "python-django", "python-fastapi", "python-flask-sqlalchemy"}
 	got := cat.IDs()
 	if strings.Join(got, ",") != strings.Join(want, ",") {
 		t.Fatalf("ids = %v want %v", got, want)
@@ -47,6 +47,8 @@ func TestDetectExamples(t *testing.T) {
 		{"../../examples/stacks/tickets", "node-express-prisma"},
 		{"../../examples/stacks/library", "java-spring-jpa"},
 		{"../../examples/stacks/portal", "node-nextjs"},
+		{"../../examples/stacks/blog", "python-django"},
+		{"../../examples/stacks/tasks", "node-nestjs-prisma"},
 	}
 	for _, tc := range cases {
 		p, err := cat.Detect(tc.dir)
@@ -318,6 +320,99 @@ func TestDetectErrorSuggestsStack(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "Next:") {
 		t.Fatalf("expected Next: guidance in err: %v", err)
+	}
+}
+
+func TestDetectDjango(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("django==5.1.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "python-django" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectFastAPIBeatsDjango(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("fastapi==0.115.0\ndjango==5.1.1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "python-fastapi" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectDjangoBeatsFlask(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "requirements.txt"), []byte("django==5.1.1\nflask==3.0.3\nsqlalchemy==2.0.35\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "python-django" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectNestJSPrisma(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	pkg := "{\"dependencies\":{\"@nestjs/core\":\"10.4.4\",\"@prisma/client\":\"5.20.0\"}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "node-nestjs-prisma" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectNestBeatsExpress(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	pkg := "{\"dependencies\":{\"@nestjs/core\":\"10.4.4\",\"express\":\"4.21.0\",\"@prisma/client\":\"5.20.0\",\"prisma\":\"5.20.0\"}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "node-nestjs-prisma" {
+		t.Fatalf("got %+v err=%v", p, err)
+	}
+}
+
+func TestDetectNextBeatsNest(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	pkg := "{\"dependencies\":{\"next\":\"14.2.13\",\"@nestjs/core\":\"10.4.4\",\"@prisma/client\":\"5.20.0\"}}\n"
+	if err := os.WriteFile(filepath.Join(dir, "package.json"), []byte(pkg), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Detect(dir)
+	if err != nil || p.ID != "node-nextjs" {
+		t.Fatalf("got %+v err=%v", p, err)
 	}
 }
 

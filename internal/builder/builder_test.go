@@ -176,7 +176,6 @@ func TestBuildDetectsFastAPI(t *testing.T) {
 	}
 }
 
-
 func TestBuildDetectsFlaskSQLAlchemy(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "notes")
 	copyTree(t, "../../examples/stacks/notes", dir)
@@ -223,7 +222,6 @@ func TestBuildDetectsExpressPrisma(t *testing.T) {
 	}
 }
 
-
 func TestBuildDetectsSpringJPA(t *testing.T) {
 	dir := filepath.Join(t.TempDir(), "library")
 	copyTree(t, "../../examples/stacks/library", dir)
@@ -267,6 +265,32 @@ func TestBuildDetectsNextJS(t *testing.T) {
 	}
 	if len(*builds) != 1 {
 		t.Fatalf("builds = %v", *builds)
+	}
+}
+
+func TestBuildDetectsDjango(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "blog")
+	copyTree(t, "../../examples/stacks/blog", dir)
+	_ = mockDocker(t)
+	out, err := Build(context.Background(), dir, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Detected || out.Stack != "python-django" {
+		t.Fatalf("result = %+v", out)
+	}
+}
+
+func TestBuildDetectsNestJS(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "tasks")
+	copyTree(t, "../../examples/stacks/tasks", dir)
+	_ = mockDocker(t)
+	out, err := Build(context.Background(), dir, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !out.Detected || out.Stack != "node-nestjs-prisma" {
+		t.Fatalf("result = %+v", out)
 	}
 }
 
