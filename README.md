@@ -105,6 +105,11 @@ Same verbs as Go. Generic HTTP templates bind `0.0.0.0:$PORT` and serve `GET /he
 ./lf init api --runtime python --preset fastapi
 
 cd hello-py && ../lf build && ../lf deploy --gateway http://127.0.0.1:8080
+
+```bash
+./lf init hello-node --runtime node
+cd hello-node && ../lf build && ../lf deploy --gateway http://127.0.0.1:8080
+```
 ../lf invoke hello-py -d '{"name":"litefaas"}'
 # {"message":"hello from litefaas","function":"hello-py"}
 ```
@@ -269,7 +274,7 @@ services:
 stack: go-gin-gorm
 ```
 
-Explicit `runtime` / `preset` / `dockerfile` in a full `litefaas.yaml` still wins over fingerprints. Add a community pack by dropping a directory next to the first-party ones, or set `LITEFAAS_STACKS_DIR` (same `stack.yml` shape; same id replaces the embedded pack).
+List packs with `lf stacks` (or `lf stacks --json`). Explicit `runtime` / `preset` / `dockerfile` in a full `litefaas.yaml` still wins over fingerprints. Add a community pack by dropping a directory next to the first-party ones, or set `LITEFAAS_STACKS_DIR` (same `stack.yml` shape; same id replaces the embedded pack).
 
 Postgres/Redis lines in `stack.yml` are **hints** (printed on detect). litefaas does not start databases.
 

@@ -100,7 +100,6 @@ func TestDetectRejectsNearMisses(t *testing.T) {
 	}
 }
 
-
 func TestDetectSpringJPA(t *testing.T) {
 	cat, err := OpenEmbedded()
 	if err != nil {
@@ -304,6 +303,21 @@ func TestDetectRejectsExpressWithoutPrisma(t *testing.T) {
 	}
 	if _, err := cat.Detect(dir); err == nil {
 		t.Fatal("express without prisma should not match")
+	}
+}
+
+func TestDetectErrorSuggestsStack(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	_, err = cat.Detect(dir)
+	if err == nil || !strings.Contains(err.Error(), "--stack") || !strings.Contains(err.Error(), "lf stacks") {
+		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "python-fastapi") {
+		t.Fatalf("expected pack ids in err: %v", err)
 	}
 }
 

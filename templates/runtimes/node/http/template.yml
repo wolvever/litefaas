@@ -1,0 +1,5 @@
+name: node-http
+runtime: node
+kind: function
+language: node
+description: Generic Node HTTP function (binds 0.0.0.0:$PORT)

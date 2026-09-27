@@ -46,7 +46,7 @@ func templateRoot(rt types.Runtime, preset string) (fs.FS, string, error) {
 	case types.RuntimeStatic:
 		return templates.Frontend, "frontend/static", nil
 	case types.RuntimeNode:
-		return nil, "", fmt.Errorf("runtime node has no lf init template yet; use a stack pack (node-express-prisma) or runtime dockerfile")
+		return templates.Runtimes, "runtimes/node/http", nil
 	case types.RuntimeDockerfile:
 		return templates.Meta, "meta/dockerfile", nil
 	default:

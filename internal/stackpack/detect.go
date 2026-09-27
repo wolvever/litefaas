@@ -22,7 +22,12 @@ func (c *Catalog) Detect(dir string) (*Pack, error) {
 		}
 	}
 	if len(hits) == 0 {
-		return nil, fmt.Errorf("no stack pack matched %s (add litefaas.yaml or --stack %s)", dir, strings.Join(c.IDs(), "|"))
+		ids := c.IDs()
+		hint := strings.Join(ids, ", ")
+		if len(ids) == 0 {
+			hint = "(none loaded)"
+		}
+		return nil, fmt.Errorf("no stack pack matched %s; add litefaas.yaml, pass --stack <id>, or run lf stacks (available: %s)", dir, hint)
 	}
 	if len(hits) == 1 {
 		return hits[0], nil
@@ -46,7 +51,7 @@ func (c *Catalog) Detect(dir string) (*Pack, error) {
 				ids = append(ids, p.ID)
 			}
 		}
-		return nil, fmt.Errorf("ambiguous stack in %s: %s (set --stack or stack: in litefaas.yaml)", dir, strings.Join(ids, ", "))
+		return nil, fmt.Errorf("ambiguous stack in %s: %s (set --stack or stack: in litefaas.yaml; see lf stacks)", dir, strings.Join(ids, ", "))
 	}
 	return best, nil
 }

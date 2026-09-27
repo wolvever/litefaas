@@ -127,10 +127,23 @@ func TestInitRejectsUnknownRuntime(t *testing.T) {
 	}
 }
 
-func TestInitRejectsNodeWithoutTemplate(t *testing.T) {
-	_, err := Init(Options{Name: "x", Runtime: types.RuntimeNode, Dir: t.TempDir()})
-	if err == nil || !strings.Contains(err.Error(), "stack pack") {
-		t.Fatalf("err = %v", err)
+func TestInitNodeHTTP(t *testing.T) {
+	parent := t.TempDir()
+	dest, err := Init(Options{Name: "hello-node", Runtime: types.RuntimeNode, Dir: parent})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, f := range []string{"server.js", "package.json", "Dockerfile", "litefaas.yaml"} {
+		if _, err := os.Stat(filepath.Join(dest, f)); err != nil {
+			t.Fatalf("%s: %v", f, err)
+		}
+	}
+	m, err := manifest.Load(filepath.Join(dest, "litefaas.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Runtime != "node" || m.Name != "hello-node" {
+		t.Fatalf("manifest = %+v", m)
 	}
 }
 
