@@ -12,15 +12,31 @@ Poor man's serverless: a minimal **CLI + API** control plane to build and deploy
 - Presets: `spring-boot` (Java), `fastapi` (Python)
 - Stack packs (Phase 7): `java-spring-mybatis`, `java-spring-jpa`, `python-fastapi`, `python-flask-sqlalchemy`, `go-gin-gorm`, `node-express-prisma`, `node-nextjs`
 
-## Build
+## Install
 
 Requires [Go 1.22+](https://go.dev/dl/). Docker is required only for `lf build` / `lf deploy` / the live invoke path.
+
+**From source (recommended for hacking):**
 
 ```bash
 git clone https://github.com/wolvever/litefaas.git
 cd litefaas
 go build -o lf ./cmd/lf
 go build -o litefaasd ./cmd/litefaasd
+```
+
+**With `go install` (puts binaries on `$(go env GOPATH)/bin`):**
+
+```bash
+go install github.com/wolvever/litefaas/cmd/lf@latest
+go install github.com/wolvever/litefaas/cmd/litefaasd@latest
+```
+
+Pin a release tag when available:
+
+```bash
+go install github.com/wolvever/litefaas/cmd/lf@v0.1.0-alpha
+go install github.com/wolvever/litefaas/cmd/litefaasd@v0.1.0-alpha
 ```
 
 `go build ./...` from the repo root must succeed. Override the reported version at link time if you want:
