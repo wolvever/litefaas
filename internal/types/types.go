@@ -61,7 +61,7 @@ func DefaultKind(rt Runtime) Kind {
 	switch rt {
 	case RuntimeStatic:
 		return KindFrontend
-	case RuntimeDockerfile:
+	case RuntimeDockerfile, RuntimeNode:
 		return KindBackend
 	default:
 		return KindFunction

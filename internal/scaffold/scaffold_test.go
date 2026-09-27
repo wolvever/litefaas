@@ -145,6 +145,17 @@ func TestInitNodeHTTP(t *testing.T) {
 	if m.Runtime != "node" || m.Name != "hello-node" {
 		t.Fatalf("manifest = %+v", m)
 	}
+	if m.Kind != string(types.KindBackend) && m.Kind != "backend" {
+		t.Fatalf("kind = %q want backend", m.Kind)
+	}
+	srv, err := os.ReadFile(filepath.Join(dest, "server.js"))
+	if err != nil || !strings.Contains(string(srv), "healthz") {
+		t.Fatalf("server.js missing healthz: %v", err)
+	}
+	df, err := os.ReadFile(filepath.Join(dest, "Dockerfile"))
+	if err != nil || !strings.Contains(string(df), "PORT") {
+		t.Fatalf("Dockerfile missing PORT: %v", err)
+	}
 }
 
 func TestInitRejectsUnknownPreset(t *testing.T) {

@@ -316,8 +316,8 @@ func TestDetectErrorSuggestsStack(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "--stack") || !strings.Contains(err.Error(), "lf stacks") {
 		t.Fatalf("err = %v", err)
 	}
-	if !strings.Contains(err.Error(), "python-fastapi") {
-		t.Fatalf("expected pack ids in err: %v", err)
+	if !strings.Contains(err.Error(), "Next:") {
+		t.Fatalf("expected Next: guidance in err: %v", err)
 	}
 }
 
@@ -338,6 +338,9 @@ func TestDetectAmbiguous(t *testing.T) {
 	_, err := cat.Detect(dir)
 	if err == nil || !strings.Contains(err.Error(), "ambiguous") {
 		t.Fatalf("err = %v", err)
+	}
+	if !strings.Contains(err.Error(), "priority") {
+		t.Fatalf("expected priority in ambiguous err: %v", err)
 	}
 }
 

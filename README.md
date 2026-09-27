@@ -120,6 +120,7 @@ cd hello-node && ../lf build && ../lf deploy --gateway http://127.0.0.1:8080
 | `java --preset spring-boot` | `templates/presets/java/spring-boot` |
 | `python` | `templates/runtimes/python/http` (stdlib `http.server`) |
 | `python --preset fastapi` | `templates/presets/python/fastapi` |
+| `node` | `templates/runtimes/node/http` (stdlib `http`) |
 | `static` (`--kind frontend`) | `templates/frontend/static` (nginx + SPA `try_files`) |
 | `dockerfile` (`--kind backend` default) | `templates/meta/dockerfile` (replace the Dockerfile) |
 
