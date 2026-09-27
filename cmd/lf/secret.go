@@ -51,6 +51,9 @@ func secretSet(args []string) error {
 		}
 		val = strings.TrimRight(string(raw), "\n")
 	case val != "":
+		// --value wins over remaining argv
+	case len(rest) > 1:
+		val = strings.Join(rest[1:], " ")
 	default:
 		raw, err := io.ReadAll(os.Stdin)
 		if err != nil {

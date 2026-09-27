@@ -684,6 +684,16 @@ func (s *Server) withResolvedSecrets(res types.Resource) (types.Resource, error)
 	if len(res.Env) == 0 {
 		return res, nil
 	}
+	hasRef := false
+	for _, v := range res.Env {
+		if strings.Contains(v, "${secret:") {
+			hasRef = true
+			break
+		}
+	}
+	if !hasRef {
+		return res, nil
+	}
 	if s.secrets == nil {
 		return res, fmt.Errorf("secrets store not configured")
 	}

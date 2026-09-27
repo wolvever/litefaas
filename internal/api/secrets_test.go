@@ -119,3 +119,88 @@ func TestDeployResolvesSecrets(t *testing.T) {
 		t.Fatalf("stored env mutated: %#v", stored.Env)
 	}
 }
+
+
+func TestSecretsNotFoundAndBadName(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	sec, err := secret.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Options{Store: st, Secrets: sec, Token: "tok", Runner: runner.NewFake()})
+
+	get := httptest.NewRequest(http.MethodGet, "/v1/secrets/missing", nil)
+	get.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, get)
+	if rec.Code != http.StatusNotFound {
+		t.Fatalf("get missing status=%d", rec.Code)
+	}
+
+	put := httptest.NewRequest(http.MethodPut, "/v1/secrets/-bad", bytes.NewReader([]byte(`{"value":"x"}`)))
+	put.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, put)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad name status=%d body=%s", rec.Code, rec.Body.String())
+	}
+
+	put = httptest.NewRequest(http.MethodPut, "/v1/secrets/db", bytes.NewReader([]byte(`{"value":""}`)))
+	put.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, put)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("empty value status=%d body=%s", rec.Code, rec.Body.String())
+	}
+}
+
+func TestDeployMissingSecret(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	sec, err := secret.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	fake := runner.NewFake()
+	srv := New(Options{Store: st, Secrets: sec, Token: "tok", Runner: fake})
+
+	res := types.Resource{
+		Name: "api", Kind: types.KindBackend, Runtime: types.RuntimePython,
+		Image: "api:latest", Port: 8080, Memory: 128, Health: "/healthz",
+		Env: map[string]string{"DATABASE_URL": "${secret:missing}"},
+	}
+	raw, _ := json.Marshal(res)
+	req := httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(raw))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create=%d %s", rec.Code, rec.Body.String())
+	}
+
+	dep := httptest.NewRequest(http.MethodPost, "/v1/functions/api/deploy", bytes.NewReader([]byte(`{}`)))
+	dep.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, dep)
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("deploy=%d %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "missing") {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "resolved") {
+		t.Fatal("unexpected plaintext")
+	}
+	if len(fake.Deploys) != 0 {
+		t.Fatalf("deploy should not run, got %d", len(fake.Deploys))
+	}
+}

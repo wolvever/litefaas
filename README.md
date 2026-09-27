@@ -10,7 +10,7 @@ Poor man's serverless: a minimal **CLI + API** control plane to build and deploy
 - Kinds: `function` | `backend` | `frontend`
 - Runtimes: `go` | `java` | `python` | `node` | `dockerfile` | `static`
 - Presets: `spring-boot` (Java), `fastapi` (Python)
-- Stack packs (Phase 7): `java-spring-mybatis`, `java-spring-jpa`, `python-fastapi`, `python-flask-sqlalchemy`, `go-gin-gorm`, `node-express-prisma`, `node-nextjs`
+- Stack packs (Phase 7): `java-spring-mybatis`, `java-spring-jpa`, `python-fastapi`, `python-flask-sqlalchemy`, `python-django`, `go-gin-gorm`, `node-express-prisma`, `node-nestjs-prisma`, `node-nextjs`
 
 ## Install
 
@@ -253,6 +253,8 @@ services:
 ./lf build examples/stacks/notes       # python-flask-sqlalchemy
 ./lf build examples/stacks/tickets     # node-express-prisma
 ./lf build examples/stacks/portal      # node-nextjs
+./lf build examples/stacks/blog        # python-django
+./lf build examples/stacks/tasks       # node-nestjs-prisma
 ./lf deploy examples/stacks/catalog --gateway http://127.0.0.1:8080
 ```
 
@@ -274,6 +276,7 @@ Postgres/Redis lines in `stack.yml` are **hints** (printed on detect). litefaas 
 ## Secrets
 
 Encrypt-at-rest secrets live under the daemon `--data-dir` (`secrets.key` + `secrets/*.enc`). Values are never logged.
+Treat `--data-dir` like a private key store (`chmod 700`); backups of that directory include decryptable secrets. `--no-auth` still allows anyone who can reach the API to `GET` secret values — keep it loopback-only.
 
 ```bash
 ./lf secret set db --value 'postgres://app:app@localhost:5432/app'

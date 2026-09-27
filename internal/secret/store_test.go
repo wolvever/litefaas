@@ -105,3 +105,44 @@ func TestValidateName(t *testing.T) {
 		t.Fatal("expected invalid")
 	}
 }
+
+
+func TestCorruptCiphertext(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set("x", "ok"); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, DirName, "x.enc")
+	if err := os.WriteFile(path, []byte("not-valid-gcm"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = s.Get("x")
+	if err == nil {
+		t.Fatal("expected decrypt error")
+	}
+	if strings.Contains(err.Error(), "ok") {
+		t.Fatal("plaintext in error")
+	}
+}
+
+func TestResolveEnvNilGet(t *testing.T) {
+	_, err := ResolveEnv(map[string]string{"A": "plain"}, nil)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestSetEmpty(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Set("x", ""); err == nil {
+		t.Fatal("expected empty reject")
+	}
+}

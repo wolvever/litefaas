@@ -100,6 +100,9 @@ func (s *Store) Set(name, value string) error {
 	if err := ValidateName(name); err != nil {
 		return err
 	}
+	if value == "" {
+		return fmt.Errorf("secret value is empty")
+	}
 	nonce := make([]byte, s.aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return err
