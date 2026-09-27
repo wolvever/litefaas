@@ -14,6 +14,8 @@ func TestResolveDetectExamples(t *testing.T) {
 		{"../../examples/stacks/shop", "java-spring-mybatis", "shop"},
 		{"../../examples/stacks/catalog", "python-fastapi", "catalog"},
 		{"../../examples/stacks/inventory", "go-gin-gorm", "inventory"},
+		{"../../examples/stacks/notes", "python-flask-sqlalchemy", "notes"},
+		{"../../examples/stacks/tickets", "node-express-prisma", "tickets"},
 	}
 	for _, tc := range cases {
 		res, err := ResolveDetect(tc.dir, "")

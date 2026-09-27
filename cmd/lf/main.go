@@ -68,7 +68,7 @@ func printUsage(w io.Writer) {
 Usage:
   lf version                 Print CLI version
   lf health                  GET /healthz on the current gateway
-  lf init <name> --runtime go|java|python|dockerfile|static [--preset ...] [--kind function|backend|frontend]
+  lf init <name> --runtime go|java|python|node|dockerfile|static [--preset ...] [--kind function|backend|frontend]
   lf build [path] [--stack ID]  docker build (detects a stack pack if no litefaas.yaml)
   lf deploy [path] [--stack ID] Register + deploy the container via the API
   lf invoke <name> [-d BODY] POST /v1/invoke/{name}

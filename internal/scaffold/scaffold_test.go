@@ -121,9 +121,16 @@ func TestInitDockerfileDefaultsBackend(t *testing.T) {
 }
 
 func TestInitRejectsUnknownRuntime(t *testing.T) {
-	_, err := Init(Options{Name: "x", Runtime: types.Runtime("node"), Dir: t.TempDir()})
+	_, err := Init(Options{Name: "x", Runtime: types.Runtime("rust"), Dir: t.TempDir()})
 	if err == nil {
 		t.Fatal("expected error")
+	}
+}
+
+func TestInitRejectsNodeWithoutTemplate(t *testing.T) {
+	_, err := Init(Options{Name: "x", Runtime: types.RuntimeNode, Dir: t.TempDir()})
+	if err == nil || !strings.Contains(err.Error(), "stack pack") {
+		t.Fatalf("err = %v", err)
 	}
 }
 

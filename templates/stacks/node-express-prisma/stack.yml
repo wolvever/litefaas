@@ -1,0 +1,28 @@
+id: node-express-prisma
+title: Express + Prisma
+language: node
+runtime: node
+kind: backend
+memory: 128
+priority: 80
+description: Node Express HTTP API with Prisma. npm start on 0.0.0.0:$PORT. Runs prisma generate when schema is present.
+
+match:
+  - files: [package.json, prisma/schema.prisma]
+    contains:
+      - file: package.json
+        any: [express]
+      - file: package.json
+        any: ["@prisma/client", prisma]
+  - files: [package.json]
+    contains:
+      - file: package.json
+        any: [express]
+      - file: package.json
+        any: ["@prisma/client", prisma]
+
+hints:
+  sidecars: [postgres, redis]
+  env:
+    DATABASE_URL: postgres://app:app@localhost:5432/app
+    REDIS_URL: redis://localhost:6379/0

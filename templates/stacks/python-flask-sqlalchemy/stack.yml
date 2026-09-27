@@ -1,0 +1,36 @@
+id: python-flask-sqlalchemy
+title: Flask + SQLAlchemy
+language: python
+runtime: python
+kind: backend
+memory: 128
+priority: 60
+description: Flask + SQLAlchemy (gunicorn preferred). Entry FLASK_APP / GUNICORN_APP (default app:app). Bind 0.0.0.0:$PORT. Priority below python-fastapi.
+
+match:
+  - files: [requirements.txt]
+    contains:
+      - file: requirements.txt
+        any: [flask]
+      - file: requirements.txt
+        any: [sqlalchemy, flask-sqlalchemy]
+  - files: [pyproject.toml]
+    contains:
+      - file: pyproject.toml
+        any: [flask]
+      - file: pyproject.toml
+        any: [sqlalchemy, flask-sqlalchemy]
+  - files: [Pipfile]
+    contains:
+      - file: Pipfile
+        any: [flask]
+      - file: Pipfile
+        any: [sqlalchemy, flask-sqlalchemy]
+
+hints:
+  sidecars: [postgres, redis]
+  env:
+    DATABASE_URL: postgres://app:app@localhost:5432/app
+    REDIS_URL: redis://localhost:6379/0
+    FLASK_APP: app:app
+    GUNICORN_APP: app:app

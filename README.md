@@ -1,6 +1,6 @@
 # litefaas
 
-Poor man's serverless: a minimal **CLI + API** control plane to build and deploy **functions**, **backends** (Java / Go / Python), and a **lightweight frontend**, self-hosted on a single node.
+Poor man's serverless: a minimal **CLI + API** control plane to build and deploy **functions**, **backends** (Java / Go / Python / Node), and a **lightweight frontend**, self-hosted on a single node.
 
 > Status: RFC accepted — Phases 0–7 are in tree. Functions, always-on backends (including `runtime: dockerfile`), a static frontend, a persisted path route table, bearer tokens, log streaming, optional `stack.yaml`, and zero-config stack-pack detection run on one Docker host.
 
@@ -8,9 +8,9 @@ Poor man's serverless: a minimal **CLI + API** control plane to build and deploy
 
 - **[RFC-0001: Architecture](docs/RFC-0001-architecture.md)** — design, manifests (`litefaas.yaml` / `stack.yaml`), stack packs, API, phases
 - Kinds: `function` | `backend` | `frontend`
-- Runtimes: `go` | `java` | `python` | `dockerfile` | `static`
+- Runtimes: `go` | `java` | `python` | `node` | `dockerfile` | `static`
 - Presets: `spring-boot` (Java), `fastapi` (Python)
-- Stack packs (Phase 7): `java-spring-mybatis`, `python-fastapi`, `go-gin-gorm`
+- Stack packs (Phase 7): `java-spring-mybatis`, `python-fastapi`, `python-flask-sqlalchemy`, `go-gin-gorm`, `node-express-prisma`
 
 ## Build
 
@@ -226,13 +226,15 @@ services:
 
 ## Zero-config stack detection (Phase 7)
 
-`litefaas.yaml` is optional. On a typical Spring+MyBatis, FastAPI, or Gin+GORM app, `lf build` / `lf deploy` fingerprint the directory, pick a **stack pack** (YAML + Dockerfile under `templates/stacks/`), and build. The daemon still only knows HTTP `$PORT` and Docker — packs are data, not framework imports.
+`litefaas.yaml` is optional. On a typical Spring+MyBatis, FastAPI, Flask+SQLAlchemy, Gin+GORM, or Express+Prisma app, `lf build` / `lf deploy` fingerprint the directory, pick a **stack pack** (YAML + Dockerfile under `templates/stacks/`), and build. The daemon still only knows HTTP `$PORT` and Docker — packs are data, not framework imports.
 
 ```bash
 # no litefaas.yaml in these dirs
 ./lf build examples/stacks/shop        # java-spring-mybatis
 ./lf build examples/stacks/catalog     # python-fastapi
 ./lf build examples/stacks/inventory   # go-gin-gorm
+./lf build examples/stacks/notes       # python-flask-sqlalchemy
+./lf build examples/stacks/tickets     # node-express-prisma
 ./lf deploy examples/stacks/catalog --gateway http://127.0.0.1:8080
 ```
 
