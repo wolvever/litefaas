@@ -271,6 +271,26 @@ Explicit `runtime` / `preset` / `dockerfile` in a full `litefaas.yaml` still win
 
 Postgres/Redis lines in `stack.yml` are **hints** (printed on detect). litefaas does not start databases.
 
+## Secrets
+
+Encrypt-at-rest secrets live under the daemon `--data-dir` (`secrets.key` + `secrets/*.enc`). Values are never logged.
+
+```bash
+./lf secret set db --value 'postgres://app:app@localhost:5432/app'
+./lf secret list
+./lf secret get db
+./lf secret delete db
+```
+
+Reference them in `litefaas.yaml` env; litefaasd expands `${secret:name}` at **deploy** (stored metadata keeps the ref):
+
+```yaml
+env:
+  DATABASE_URL: ${secret:db}
+```
+
+API: `PUT/GET/DELETE /v1/secrets/{name}`, `GET /v1/secrets` (names only).
+
 ## Health and version
 
 ```bash
@@ -298,6 +318,9 @@ Base path `/v1`. State is sqlite under `--data-dir` (file `litefaas.db`; default
 | GET | `/v1/functions/{name}` | Get (includes revisions) |
 | DELETE | `/v1/functions/{name}` | Delete resource and stop its container |
 | POST | `/v1/functions/{name}/deploy` | Deploy/replace the Docker container |
+| PUT | `/v1/secrets/{name}` | Create/update secret (encrypt-at-rest) |
+| GET | `/v1/secrets` / `{name}` | List names / get value |
+| DELETE | `/v1/secrets/{name}` | Delete secret |
 | POST | `/v1/invoke/{name}` | Sync invoke (kind=function; wakes if idle-stopped) |
 | GET | `/v1/functions/{name}/logs` | Log tail (`follow`, `tail` query params) |
 | GET | `/v1/metrics` | Basic counters |
