@@ -157,10 +157,12 @@ templates/
     dockerfile/
   stacks/                     # Phase 7 fingerprint packs (data, not Go)
     java-spring-mybatis/
+    java-spring-jpa/
     python-fastapi/
     python-flask-sqlalchemy/
     go-gin-gorm/
     node-express-prisma/
+    node-nextjs/
 ```
 
 Each runtime/preset template provides: `template.yml`, `Dockerfile` (and optionally build stage), and a minimal handler stub. Each stack pack provides `stack.yml` (fingerprints + defaults + sidecar/env hints) and a best-practice `Dockerfile`.
@@ -293,7 +295,7 @@ Edge routing example:
 
 ### Phase 7 — Zero-config stack detection (post-v0.1)
 - Data-only stack packs: fingerprints + Dockerfile recipes
-- First-party: `java-spring-mybatis`, `python-fastapi`, `python-flask-sqlalchemy`, `go-gin-gorm`, `node-express-prisma`
+- First-party: `java-spring-mybatis`, `java-spring-jpa`, `python-fastapi`, `python-flask-sqlalchemy`, `go-gin-gorm`, `node-express-prisma`, `node-nextjs`
 - `lf build` / `lf deploy` work with little or no `litefaas.yaml`; `--stack` / `stack:` override
 - Control plane stays HTTP `$PORT` + Docker; adding a pack does not grow `litefaasd`
 - `runtime: node` is accepted for stack packs (no `lf init` template yet; use a pack or `dockerfile`)

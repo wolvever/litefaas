@@ -1,0 +1,36 @@
+id: node-nextjs
+title: Next.js
+language: node
+runtime: node
+kind: backend
+memory: 256
+priority: 90
+description: Next.js SSR Node process (not static-only). next build + next start (standalone preferred). Bind 0.0.0.0:$PORT. Priority above node-express-prisma so Next wins when next is present.
+
+match:
+  - files: [package.json, next.config.js]
+    contains:
+      - file: package.json
+        any: ["\"next\""]
+  - files: [package.json, next.config.mjs]
+    contains:
+      - file: package.json
+        any: ["\"next\""]
+  - files: [package.json, next.config.ts]
+    contains:
+      - file: package.json
+        any: ["\"next\""]
+  - files: [package.json, next.config.mts]
+    contains:
+      - file: package.json
+        any: ["\"next\""]
+  - files: [package.json]
+    contains:
+      - file: package.json
+        any: ["\"next\""]
+
+hints:
+  sidecars: [postgres, redis]
+  env:
+    DATABASE_URL: postgres://app:app@localhost:5432/app
+    REDIS_URL: redis://localhost:6379/0
