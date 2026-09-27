@@ -313,13 +313,21 @@ API: `PUT/GET/DELETE /v1/secrets/{name}`, `GET /v1/secrets` (names only).
 
 ## TLS / HTTPS
 
-litefaasd speaks **HTTP** on `--addr` (demos use `127.0.0.1:8080`). For HTTPS, terminate TLS in front of it:
+litefaasd speaks **HTTP** on `--addr` by default (demos use `127.0.0.1:8080`). Optional edge TLS:
+
+```bash
+./litefaasd --addr 0.0.0.0:8443 --tls-cert /path/to/cert.pem --tls-key /path/to/key.pem
+```
+
+Both `--tls-cert` and `--tls-key` are required together (setting only one is a fatal error). The listen log uses `https://` when TLS is enabled.
+
+For production, terminating TLS in front of litefaasd is still fine:
 
 1. **Host reverse proxy** — Caddy / Traefik / nginx with `reverse_proxy 127.0.0.1:8080` and automatic HTTPS.
 2. **Private network** — Tailscale / WireGuard without public DNS.
-3. Bind `0.0.0.0` only **behind** the TLS proxy; keep loopback for local demos.
+3. Bind `0.0.0.0` only **behind** the TLS proxy (or with `--tls-cert`/`--tls-key`); keep loopback for local demos.
 
-ACME / TLS inside litefaasd is out of scope for `v0.1.0-alpha`.
+ACME / auto-cert inside litefaasd remains out of scope.
 
 ## Named volumes
 
@@ -332,7 +340,12 @@ volumes:
     # read_only: false
 ```
 
-Docker volume name: `litefaas-<resource>-<name>` (e.g. `litefaas-orders-data`). Volumes are **created** on deploy and **left in place** on `lf delete` (operators may `docker volume rm` manually).
+Docker volume name: `litefaas-<resource>-<name>` (e.g. `litefaas-orders-data`). Volumes are **created** on deploy and **left in place** on `lf delete` by default. Opt-in prune:
+
+```bash
+lf delete orders-api --prune-volumes
+# or: DELETE /v1/functions/orders-api?prune_volumes=1
+```
 
 ## Health-gated deploy
 
@@ -368,7 +381,7 @@ Base path `/v1`. State is sqlite under `--data-dir` (file `litefaas.db`; default
 | PUT | `/v1/functions/{name}` | Update resource metadata |
 | GET | `/v1/functions` | List |
 | GET | `/v1/functions/{name}` | Get (includes revisions) |
-| DELETE | `/v1/functions/{name}` | Delete resource and stop its container |
+| DELETE | `/v1/functions/{name}` | Delete resource and stop its container (`?prune_volumes=1` also removes named volumes) |
 | POST | `/v1/functions/{name}/deploy` | Deploy/replace the Docker container |
 | PUT | `/v1/secrets/{name}` | Create/update secret (encrypt-at-rest) |
 | GET | `/v1/secrets` / `{name}` | List names / get value |

@@ -66,8 +66,12 @@ func (c *Client) Update(r types.Resource) (types.Resource, error) {
 	return out, nil
 }
 
-func (c *Client) Delete(name string) error {
-	return c.do(http.MethodDelete, "/v1/functions/"+name, nil, nil)
+func (c *Client) Delete(name string, pruneVolumes ...bool) error {
+	path := "/v1/functions/" + name
+	if len(pruneVolumes) > 0 && pruneVolumes[0] {
+		path += "?prune_volumes=1"
+	}
+	return c.do(http.MethodDelete, path, nil, nil)
 }
 
 func (c *Client) Routes() ([]proxy.Route, error) {
