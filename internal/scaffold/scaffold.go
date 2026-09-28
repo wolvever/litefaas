@@ -157,3 +157,14 @@ func WriteDockerfile(dir string, runtime types.Runtime) error {
 func WriteGoDockerfile(dir string) error {
 	return WriteDockerfile(dir, types.RuntimeGo)
 }
+
+// HasDockerfile reports whether the runtime template ships a Dockerfile
+// (without writing anything to disk).
+func HasDockerfile(runtime types.Runtime) bool {
+	srcFS, src, err := templateRoot(runtime, "")
+	if err != nil {
+		return false
+	}
+	_, err = fs.ReadFile(srcFS, path.Join(src, "Dockerfile"))
+	return err == nil
+}

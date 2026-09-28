@@ -150,3 +150,71 @@ func (p *Pack) FormatHints() string {
 	}
 	return strings.Join(parts, " ")
 }
+
+// FingerprintHit records which files/contains needles matched for one RuleSet.
+type FingerprintHit struct {
+	Files    []string      `json:"files,omitempty"`
+	Contains []ContainsHit `json:"contains,omitempty"`
+}
+
+// ContainsHit is one successful contains check (matched needle only).
+type ContainsHit struct {
+	File    string `json:"file"`
+	Matched string `json:"matched"`
+}
+
+// ExplainMatch is like Matches but records evidence for the first matching RuleSet.
+// Match semantics are unchanged.
+func (p *Pack) ExplainMatch(dir string) (matched bool, hits []FingerprintHit) {
+	if p == nil {
+		return false, nil
+	}
+	for _, rs := range p.Match {
+		ok, hit := rs.explain(dir)
+		if ok {
+			return true, []FingerprintHit{hit}
+		}
+	}
+	return false, nil
+}
+
+func (rs RuleSet) explain(dir string) (bool, FingerprintHit) {
+	hit := FingerprintHit{}
+	for _, f := range rs.Files {
+		if f == "" {
+			continue
+		}
+		if !fileExists(filepath.Join(dir, filepath.FromSlash(f))) {
+			return false, FingerprintHit{}
+		}
+		hit.Files = append(hit.Files, f)
+	}
+	for _, c := range rs.Contains {
+		matched, needle := containsWhich(dir, c)
+		if !matched {
+			return false, FingerprintHit{}
+		}
+		hit.Contains = append(hit.Contains, ContainsHit{File: c.File, Matched: needle})
+	}
+	return true, hit
+}
+
+func containsWhich(dir string, c Contains) (bool, string) {
+	if c.File == "" || len(c.Any) == 0 {
+		return false, ""
+	}
+	raw, err := readCapped(filepath.Join(dir, filepath.FromSlash(c.File)))
+	if err != nil {
+		return false, ""
+	}
+	lower := strings.ToLower(string(raw))
+	for _, needle := range c.Any {
+		if needle == "" {
+			continue
+		}
+		if strings.Contains(lower, strings.ToLower(needle)) {
+			return true, needle
+		}
+	}
+	return false, ""
+}

@@ -4,6 +4,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/wolvever/litefaas/internal/client"
 	"github.com/wolvever/litefaas/internal/manifest"
@@ -34,11 +35,14 @@ func cmdDeploy(args []string) error {
 		return err
 	}
 	if res.Multi != nil {
+		n := 0
 		for i := range res.Multi.Services {
 			if err := deployResource(c, res.Multi.Services[i].Resource()); err != nil {
 				return err
 			}
+			n++
 		}
+		fmt.Printf("deployed %d services → gateway %s\n", n, c.Gateway)
 		return nil
 	}
 	if res.Detected && res.Pack != nil {
@@ -62,10 +66,10 @@ func deployResource(c *client.Client, res types.Resource) error {
 	} else {
 		fmt.Printf("registered %s\n", res.Name)
 	}
-	rev, err := c.Deploy(res.Name, res.Image)
+	dep, err := c.Deploy(res.Name, res.Image)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("deployed %s image=%s status=%s revision=%d\n", res.Name, rev.Image, rev.Status, rev.ID)
+	formatDeploySummary(os.Stdout, c.Gateway, res, dep)
 	return nil
 }

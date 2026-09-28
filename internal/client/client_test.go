@@ -3,6 +3,7 @@ package client
 import (
 	"bytes"
 	"context"
+	"net/http"
 	"net/http/httptest"
 	"testing"
 
@@ -44,6 +45,9 @@ func TestClientCRUDDeploy(t *testing.T) {
 	}
 	if rev.Status != "deployed" {
 		t.Fatalf("rev = %+v", rev)
+	}
+	if rev.Container == "" {
+		t.Fatalf("expected container name, got %+v", rev)
 	}
 	list, err := c.List()
 	if err != nil || len(list) != 1 {
@@ -93,3 +97,24 @@ func TestIsConflict(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+func TestDeployResultDecode(t *testing.T) {
+	hs := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/functions/hello/deploy" {
+			http.NotFound(w, r)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(202)
+		_, _ = w.Write([]byte(`{"id":3,"name":"hello","image":"hello:latest","status":"ready","endpoint":"http://127.0.0.1:32768","container":"litefaas-hello"}`))
+	}))
+	t.Cleanup(hs.Close)
+	c := New(hs.URL, "")
+	res, err := c.Deploy("hello", "hello:latest")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ID != 3 || res.Endpoint != "http://127.0.0.1:32768" || res.Container != "litefaas-hello" {
+		t.Fatalf("got %+v", res)
+	}
+}

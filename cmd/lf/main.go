@@ -37,6 +37,8 @@ func run(args []string) error {
 		return cmdHealth(args[1:])
 	case "init":
 		return cmdInit(args[1:])
+	case "detect":
+		return cmdDetect(args[1:])
 	case "build":
 		return cmdBuild(args[1:])
 	case "deploy":
@@ -73,7 +75,8 @@ Usage:
   lf version                 Print CLI version
   lf health                  GET /healthz on the current gateway
   lf init <name> --runtime go|java|python|node|dockerfile|static [--preset ...] [--kind function|backend|frontend]
-  lf build [path] [--stack ID]  docker build (detects a stack pack if no litefaas.yaml)
+  lf detect [path] [--stack ID] [--json]  Print stack/pack plan without building
+  lf build [path] [--stack ID] [--plan] [--json]  docker build (or --plan dry-run)
   lf deploy [path] [--stack ID] Register + deploy the container via the API
   lf invoke <name> [-d BODY] POST /v1/invoke/{name}
   lf list                    List resources
