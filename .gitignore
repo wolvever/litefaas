@@ -8,3 +8,5 @@ dist/
 *.db
 *.sqlite
 *.sqlite3
+bin/
+.demo-data/

@@ -7,6 +7,7 @@ Poor man's serverless: a minimal **CLI + API** control plane to build and deploy
 ## Docs
 
 - **[RFC-0001: Architecture](docs/RFC-0001-architecture.md)** — design, manifests (`litefaas.yaml` / `stack.yaml`), stack packs, API, phases
+- **[litefaas vs Netlify / Vercel](docs/vs-netlify-vercel.md)** — positioning and explicit non-goals
 - Kinds: `function` | `backend` | `frontend`
 - Runtimes: `go` | `java` | `python` | `node` | `dockerfile` | `static`
 - Presets: `spring-boot` (Java), `fastapi` (Python)
@@ -25,59 +26,64 @@ Poor man's serverless: a minimal **CLI + API** control plane to build and deploy
 
 ## Install
 
-Requires [Go 1.22+](https://go.dev/dl/). Docker is required only for `lf build` / `lf deploy` / the live invoke path.
+Docker is required for `lf build` / `lf deploy` / the live invoke path. Go 1.22+ is needed only when building from source.
 
-**From source (recommended for hacking):**
+**1. Release binaries (`install.sh`)** — when assets are attached to a GitHub Release:
 
 ```bash
-git clone https://github.com/wolvever/litefaas.git
-cd litefaas
-go build -o lf ./cmd/lf
-go build -o litefaasd ./cmd/litefaasd
+curl -fsSL https://raw.githubusercontent.com/wolvever/litefaas/main/scripts/install.sh | sh
+# pin: LITEFAAS_VERSION=v0.1.0-alpha sh install.sh
 ```
 
-**With `go install` (puts binaries on `$(go env GOPATH)/bin`):**
+Installs `lf` + `litefaasd` into `/usr/local/bin` (or `~/.local/bin`). Checksums are verified when `checksums.txt` is present. Judge/maintainers build assets with `scripts/release-binaries.sh` and `gh release upload`.
+
+**2. `go install`:**
 
 ```bash
 go install github.com/wolvever/litefaas/cmd/lf@latest
 go install github.com/wolvever/litefaas/cmd/litefaasd@latest
+# pin: …@v0.1.0-alpha
 ```
 
-Pin a release tag when available:
+**3. From source (hacking):**
 
 ```bash
-go install github.com/wolvever/litefaas/cmd/lf@v0.1.0-alpha
-go install github.com/wolvever/litefaas/cmd/litefaasd@v0.1.0-alpha
+git clone https://github.com/wolvever/litefaas.git
+cd litefaas
+make build   # → bin/lf bin/litefaasd
+# or: go build -o lf ./cmd/lf && go build -o litefaasd ./cmd/litefaasd
 ```
 
-`go build ./...` from the repo root must succeed. Override the reported version at link time if you want:
+Optional link-time version:
 
 ```bash
 go build -ldflags "-X github.com/wolvever/litefaas/internal/version.Version=v0.1.0-alpha" -o lf ./cmd/lf
 ```
 
+Example systemd unit (not installed by `install.sh`): [`contrib/systemd/litefaasd.service`](contrib/systemd/litefaasd.service).
+
 ## End-to-end: Go function on one Docker host
 
-This is the Phase 2 demo. You need the Go toolchain, a local Docker daemon, and two terminals.
-
-**Terminal 1 — start the daemon**
+**One command** (builds `bin/`, starts a local gateway with `lf up --no-auth`, init/build/deploy/invoke, cleans up):
 
 ```bash
-./litefaasd --addr 127.0.0.1:8080 --data-dir ./data --no-auth
+make demo
 ```
 
-`--no-auth` keeps the local walkthrough open. Omit it and litefaasd writes a bearer token to `./data/token` (see [Auth tokens](#auth-tokens)).
-
-**Terminal 2 — init, build, deploy, invoke**
+Or manually — one terminal with `lf up`:
 
 ```bash
+./lf up --no-auth --data-dir ./data   # starts or reuses litefaasd; writes default context
 ./lf init hello --runtime go
 cd hello
 ../lf build
-../lf deploy --gateway http://127.0.0.1:8080
+../lf detect .                        # optional: printable pack/runtime plan
+../lf deploy                          # prints deploy summary (edge URLs; secret refs only)
 ../lf invoke hello -d '{"name":"litefaas"}'
 ../lf logs hello --tail 50
 ```
+
+`--no-auth` keeps the local walkthrough open. Omit it and litefaasd writes a bearer token under the data dir (see [Auth tokens](#auth-tokens)). Multi-service live under [`examples/`](examples/).
 
 Expected invoke body (pretty-printed here):
 
@@ -324,13 +330,19 @@ litefaasd speaks **HTTP** on `--addr` by default (demos use `127.0.0.1:8080`). O
 
 Both `--tls-cert` and `--tls-key` are required together (setting only one is a fatal error). The listen log uses `https://` when TLS is enabled.
 
-For production, terminating TLS in front of litefaasd is still fine:
+Prefer terminating TLS **in front** of litefaasd (no ACME inside the daemon):
 
-1. **Host reverse proxy** — Caddy / Traefik / nginx with `reverse_proxy 127.0.0.1:8080` and automatic HTTPS.
+```caddyfile
+example.com {
+    reverse_proxy 127.0.0.1:8080
+}
+```
+
+1. **Host reverse proxy** — Caddy / Traefik / nginx with automatic HTTPS (recommended).
 2. **Private network** — Tailscale / WireGuard without public DNS.
 3. Bind `0.0.0.0` only **behind** the TLS proxy (or with `--tls-cert`/`--tls-key`); keep loopback for local demos.
 
-ACME / auto-cert inside litefaasd remains out of scope.
+**ACME / auto-cert inside litefaasd is an explicit non-goal.**
 
 ## Named volumes
 
@@ -428,7 +440,7 @@ go test ./...
 go build ./...
 ```
 
-Docker-required smoke (same as the demo above): `litefaasd` running, then `lf init` → `lf build` → `lf deploy` → `lf invoke` on a host with a working Docker daemon. `lf build` / `lf deploy` fail with a clear error if `docker` is missing.
+Docker-required smoke: `make demo` (or `lf up` + init/build/deploy/invoke) on a host with a working Docker daemon. `lf build` / `lf deploy` fail with a clear error if `docker` is missing.
 
 ## Manifest (`litefaas.yaml`)
 
@@ -438,9 +450,14 @@ Parsed fields for a Go function (RFC-0001 §7): `name`, `kind`, `runtime`, `pres
 
 See GitHub milestone [v0.1.0-alpha](https://github.com/wolvever/litefaas/milestone/1). Phases 0–6 (v0.1.0-alpha) are in tree. Phase 7 stack-pack detection is in tree (post-v0.1).
 
-## Inspiration
+## Compare / Inspiration
 
-Fn Project, OpenFaaS/faasd — same verbs and template idea, smaller surface.
+- Positioning vs Netlify/Vercel: [docs/vs-netlify-vercel.md](docs/vs-netlify-vercel.md)
+- Fn Project, OpenFaaS/faasd — same verbs and template idea, smaller surface
+
+## Non-goals (core)
+
+No CDN, no team UI/billing, no managed DBs in core, no ACME-in-daemon, no Kubernetes control plane, no pack-store SaaS, no `lf watch` (P1). Packs stay data; litefaasd stays dumb.
 
 ## License
 

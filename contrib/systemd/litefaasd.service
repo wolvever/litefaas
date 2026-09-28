@@ -1,0 +1,14 @@
+[Unit]
+Description=litefaasd (litefaas control plane)
+After=network.target docker.service
+Requires=docker.service
+
+[Service]
+Type=simple
+User=litefaas
+ExecStart=/usr/local/bin/litefaasd --addr 127.0.0.1:8080 --data-dir /var/lib/litefaas
+Restart=on-failure
+# Do NOT use --no-auth here
+
+[Install]
+WantedBy=multi-user.target

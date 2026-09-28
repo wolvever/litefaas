@@ -220,15 +220,19 @@ CLI maps 1:1. Auth for v0.1: shared bearer token in env (`LITEFAAS_TOKEN`).
 ## 10. CLI verbs
 
 ```text
-lf init <name> --runtime go|java|python|dockerfile|static [--preset ...] [--kind ...]
-lf build [path] [--stack ID]
-lf deploy [path] [--stack ID] [--gateway http://127.0.0.1:8080]
+lf up [flags]          # start or reuse local litefaasd; set default context
+lf init <name> --runtime go|java|python|node|dockerfile|static [--preset ...] [--kind ...]
+lf detect [path] [--stack ID] [--json]   # printable plan (no Docker)
+lf build [path] [--stack ID] [--plan] [--json]
+lf deploy [path] [--stack ID] [--gateway http://127.0.0.1:8080]  # prints deploy summary
 lf invoke <name> [-d payload]
 lf logs <name>
 lf list
 lf delete <name>
-lf up                  # start local litefaasd if needed (optional)
+lf stacks [--json]
 ```
+
+First-run: `lf up` (or `make demo` / `scripts/demo.sh`). Install: `scripts/install.sh` + release binaries, or `go install`. Prefer Caddy/nginx in front for TLS — no ACME in litefaasd.
 
 ## 11. Build & deploy flow
 
