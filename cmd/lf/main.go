@@ -129,7 +129,7 @@ func parseMixed(fs *flag.FlagSet, args []string) ([]string, error) {
 			continue
 		}
 		flags = append(flags, a)
-		if f := fs.Lookup(name); f != nil && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") {
+		if f := fs.Lookup(name); f != nil && i+1 < len(args) && !strings.HasPrefix(args[i+1], "-") && !isBoolFlag(f) {
 			flags = append(flags, args[i+1])
 			i++
 		}
@@ -138,6 +138,13 @@ func parseMixed(fs *flag.FlagSet, args []string) ([]string, error) {
 		return nil, err
 	}
 	return pos, nil
+}
+
+func isBoolFlag(f *flag.Flag) bool {
+	if bf, ok := f.Value.(interface{ IsBoolFlag() bool }); ok {
+		return bf.IsBoolFlag()
+	}
+	return false
 }
 
 func resolveClient(gatewayFlag, tokenFlag, configDir string) (*client.Client, error) {
