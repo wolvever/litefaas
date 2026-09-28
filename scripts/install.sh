@@ -61,10 +61,16 @@ curl -fsSL -o "${tmpdir}/${lf_asset}" "${base}/${lf_asset}"
 curl -fsSL -o "${tmpdir}/${daemon_asset}" "${base}/${daemon_asset}"
 
 if curl -fsSL -o "${tmpdir}/${checksums}" "${base}/${checksums}"; then
+  # checksums.txt lists all platforms; filter to this host so Darwin shasum
+  # (no --ignore-missing) and Linux both verify only downloaded assets.
+  grep -E " (lf|litefaasd)_${os}_${arch}$" "${tmpdir}/${checksums}" > "${tmpdir}/checksums.platform.txt" || true
+  if [ ! -s "${tmpdir}/checksums.platform.txt" ]; then
+    die "no checksum lines for ${lf_asset} / ${daemon_asset}"
+  fi
   if command -v sha256sum >/dev/null 2>&1; then
-    (cd "$tmpdir" && sha256sum -c checksums.txt --ignore-missing) || die "checksum verification failed"
+    (cd "$tmpdir" && sha256sum -c checksums.platform.txt) || die "checksum verification failed"
   elif command -v shasum >/dev/null 2>&1; then
-    (cd "$tmpdir" && shasum -a 256 -c checksums.txt) || die "checksum verification failed"
+    (cd "$tmpdir" && shasum -a 256 -c checksums.platform.txt) || die "checksum verification failed"
   else
     echo "install.sh: warning: no sha256sum/shasum; skipping checksum verify" >&2
   fi
