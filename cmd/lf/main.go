@@ -33,6 +33,8 @@ func run(args []string) error {
 	case "help", "--help", "-h":
 		printUsage(os.Stdout)
 		return nil
+	case "up":
+		return cmdUp(args[1:])
 	case "health":
 		return cmdHealth(args[1:])
 	case "init":
@@ -73,6 +75,7 @@ func printUsage(w io.Writer) {
 
 Usage:
   lf version                 Print CLI version
+  lf up [flags]               Start or reuse local litefaasd; set default context
   lf health                  GET /healthz on the current gateway
   lf init <name> --runtime go|java|python|node|dockerfile|static [--preset ...] [--kind function|backend|frontend]
   lf detect [path] [--stack ID] [--json]  Print stack/pack plan without building
