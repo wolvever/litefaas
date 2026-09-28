@@ -212,3 +212,38 @@ func resolveValue(v string, get func(string) (string, error)) (string, error) {
 	}
 	return out, nil
 }
+
+// EnvRef is an env key that references a secret by name (value never included).
+type EnvRef struct {
+	Key  string
+	Name string // secret name inside ${secret:name}
+}
+
+// ListRefs returns env keys whose values contain ${secret:…}, sorted by key.
+// Plaintext values are omitted (never returned).
+func ListRefs(env map[string]string) []EnvRef {
+	if len(env) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(env))
+	for k := range env {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	var out []EnvRef
+	for _, k := range keys {
+		v := env[k]
+		for _, sub := range refRE.FindAllStringSubmatch(v, -1) {
+			if len(sub) < 2 {
+				continue
+			}
+			out = append(out, EnvRef{Key: k, Name: sub[1]})
+		}
+	}
+	return out
+}
+
+// FormatRef is KEY=${secret:name} for summary printing.
+func (r EnvRef) FormatRef() string {
+	return r.Key + "=${secret:" + r.Name + "}"
+}

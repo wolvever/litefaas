@@ -640,3 +640,30 @@ func TestMergeOverlay(t *testing.T) {
 		t.Fatalf("overlay = %+v err=%v", p, err)
 	}
 }
+
+func TestExplainMatch(t *testing.T) {
+	cat, err := OpenEmbedded()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := cat.Get("go-gin-gorm")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ok, hits := p.ExplainMatch("../../examples/stacks/inventory")
+	if !ok || len(hits) == 0 {
+		t.Fatalf("ok=%v hits=%+v", ok, hits)
+	}
+	if len(hits[0].Files) == 0 || len(hits[0].Contains) == 0 {
+		t.Fatalf("hit = %+v", hits[0])
+	}
+	missDir := t.TempDir()
+	_ = os.WriteFile(filepath.Join(missDir, "go.mod"), []byte("module x\n"), 0o644)
+	ok, _ = p.ExplainMatch(missDir)
+	if ok {
+		t.Fatal("expected near-miss")
+	}
+	if p.Matches("../../examples/stacks/inventory") != true {
+		t.Fatal("Matches drifted from ExplainMatch")
+	}
+}

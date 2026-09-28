@@ -214,14 +214,21 @@ func (c *Client) Logs(ctx context.Context, name string, follow bool, tail int, w
 	return err
 }
 
-func (c *Client) Deploy(name, image string) (types.Revision, error) {
-	var out types.Revision
+// DeployResult is the deploy API response (flat JSON: revision fields + endpoint/container).
+type DeployResult struct {
+	types.Revision
+	Endpoint  string `json:"endpoint,omitempty"`
+	Container string `json:"container,omitempty"`
+}
+
+func (c *Client) Deploy(name, image string) (DeployResult, error) {
+	var out DeployResult
 	body := map[string]string{}
 	if image != "" {
 		body["image"] = image
 	}
 	if err := c.do(http.MethodPost, "/v1/functions/"+name+"/deploy", body, &out); err != nil {
-		return types.Revision{}, err
+		return DeployResult{}, err
 	}
 	return out, nil
 }

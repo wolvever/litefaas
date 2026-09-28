@@ -35,3 +35,38 @@ func TestParseMixedFlagsAfterName(t *testing.T) {
 		t.Fatalf("gateway=%q config-dir=%q", *gw, *dir)
 	}
 }
+
+
+func TestParseMixedBoolFlagBeforePath(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	plan := fs.Bool("plan", false, "")
+	asJSON := fs.Bool("json", false, "")
+	pos, err := parseMixed(fs, []string{"--plan", "examples/stacks/inventory", "--json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(pos, []string{"examples/stacks/inventory"}) {
+		t.Fatalf("pos = %v", pos)
+	}
+	if !*plan || !*asJSON {
+		t.Fatalf("plan=%v json=%v", *plan, *asJSON)
+	}
+}
+
+func TestParseMixedBoolFlagEqualsAndValueFlags(t *testing.T) {
+	fs := flag.NewFlagSet("t", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	plan := fs.Bool("plan", false, "")
+	stack := fs.String("stack", "", "")
+	pos, err := parseMixed(fs, []string{"--plan", "--stack", "go-function", "myapp"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(pos, []string{"myapp"}) {
+		t.Fatalf("pos = %v", pos)
+	}
+	if !*plan || *stack != "go-function" {
+		t.Fatalf("plan=%v stack=%q", *plan, *stack)
+	}
+}

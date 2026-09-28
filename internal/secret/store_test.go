@@ -146,3 +146,24 @@ func TestSetEmpty(t *testing.T) {
 		t.Fatal("expected empty reject")
 	}
 }
+
+func TestListRefs(t *testing.T) {
+	refs := ListRefs(map[string]string{
+		"DATABASE_URL": "${secret:db}",
+		"PLAIN":        "x",
+		"MIXED":        "prefix-${secret:tok}-suffix",
+	})
+	if len(refs) != 2 {
+		t.Fatalf("refs = %+v", refs)
+	}
+	got := map[string]string{}
+	for _, r := range refs {
+		got[r.Key] = r.FormatRef()
+	}
+	if got["DATABASE_URL"] != "DATABASE_URL=${secret:db}" {
+		t.Fatalf("got %v", got)
+	}
+	if _, ok := got["PLAIN"]; ok {
+		t.Fatal("plaintext should be omitted")
+	}
+}

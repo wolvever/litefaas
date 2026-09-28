@@ -14,6 +14,8 @@ func cmdBuild(args []string) error {
 	fs := flag.NewFlagSet("build", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	stackID := fs.String("stack", "", "stack pack id (overrides detection)")
+	planOnly := fs.Bool("plan", false, "print detect plan and exit without building")
+	asJSON := fs.Bool("json", false, "with --plan, print JSON")
 	rest, err := parseMixed(fs, args)
 	if err != nil {
 		return err
@@ -21,6 +23,12 @@ func cmdBuild(args []string) error {
 	dir := "."
 	if len(rest) > 0 {
 		dir = rest[0]
+	}
+	if *planOnly {
+		return printPlan(dir, *stackID, *asJSON)
+	}
+	if *asJSON {
+		return fmt.Errorf("--json requires --plan")
 	}
 	fmt.Fprintf(os.Stderr, "building %s\n", dir)
 	results, err := builder.BuildStackWith(context.Background(), dir, *stackID, os.Stdout, os.Stderr)
