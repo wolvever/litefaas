@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -195,5 +196,160 @@ func TestIsIgnoredDirName(t *testing.T) {
 	}
 	if !isIgnoredDirName("vendor", []string{"vendor"}) {
 		t.Fatal("extra vendor")
+	}
+}
+
+func TestRebuildFlightPendingCoalesce(t *testing.T) {
+	// Regression: edits during a rebuild must produce another cycle (pending),
+	// not be dropped when the debounce timer / startRebuild unlock gap races.
+	var cycles atomic.Int32
+	started := make(chan struct{})
+	gate := make(chan struct{})
+
+	f := &rebuildFlight{
+		debounce: time.Millisecond,
+		rebuild: func() {
+			n := cycles.Add(1)
+			if n == 1 {
+				close(started)
+				<-gate
+			}
+		},
+	}
+	defer f.Stop()
+
+	f.Schedule()
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first rebuild did not start")
+	}
+
+	// Intervening edit while first rebuild runs → pending.
+	f.Schedule()
+	close(gate)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		f.mu.Lock()
+		idle := !f.running && !f.dirty && !f.pending
+		n := cycles.Load()
+		f.mu.Unlock()
+		if idle && n >= 2 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("lost coalesced edit: cycles=%d want >= 2", cycles.Load())
+}
+
+func TestRebuildFlightDirtySurvivesFinish(t *testing.T) {
+	// Regression for the review race: AfterFunc used to clear dirty, unlock,
+	// then startRebuild cleared dirty again. An intervening Schedule could set
+	// dirty in the gap and have it wiped — finish saw pending==false and
+	// stopped. Finish must continue when dirty is set (defense in depth with
+	// atomic running+dirty clear in fire).
+	var cycles atomic.Int32
+	started := make(chan struct{})
+	gate := make(chan struct{})
+
+	f := &rebuildFlight{
+		debounce: time.Hour, // timer unused; we drive startNowForTest
+		rebuild: func() {
+			n := cycles.Add(1)
+			if n == 1 {
+				close(started)
+				<-gate
+			}
+		},
+	}
+	defer f.Stop()
+
+	if !f.startNowForTest() {
+		t.Fatal("expected start")
+	}
+	select {
+	case <-started:
+	case <-time.After(2 * time.Second):
+		t.Fatal("first rebuild did not start")
+	}
+
+	// Simulate the unlock-gap survivor: dirty set without going through
+	// Schedule's running branch (which would set pending instead).
+	f.mu.Lock()
+	f.dirty = true
+	f.mu.Unlock()
+
+	close(gate)
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		f.mu.Lock()
+		idle := !f.running && !f.dirty && !f.pending
+		n := cycles.Load()
+		f.mu.Unlock()
+		if idle && n >= 2 {
+			return
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("dirty bit lost across finish: cycles=%d want >= 2", cycles.Load())
+}
+
+func TestShouldWatchNewDirSymlink(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+
+	// Real subdirectory under root → watch.
+	realDir := filepath.Join(root, "src")
+	if err := os.Mkdir(realDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if !shouldWatchNewDir(realDir, root, nil) {
+		t.Fatal("real dir under root should be watched")
+	}
+
+	// Symlink to outside directory → must NOT watch (Lstat + no follow).
+	link := filepath.Join(root, "escape")
+	if err := os.Symlink(outside, link); err != nil {
+		t.Fatal(err)
+	}
+	if shouldWatchNewDir(link, root, nil) {
+		t.Fatal("symlink to off-tree dir must not be watched")
+	}
+
+	// Symlink target is a dir; os.Stat would say IsDir — Lstat must win.
+	info, err := os.Lstat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatal("expected symlink mode")
+	}
+	st, err := os.Stat(link)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !st.IsDir() {
+		t.Fatal("Stat should follow to outside dir (documents the bug class)")
+	}
+
+	ignored := filepath.Join(root, "node_modules")
+	if err := os.Mkdir(ignored, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if shouldWatchNewDir(ignored, root, nil) {
+		t.Fatal("ignored dir must not be watched")
+	}
+}
+
+func TestShouldWatchNewDirFile(t *testing.T) {
+	root := t.TempDir()
+	f := filepath.Join(root, "main.go")
+	if err := os.WriteFile(f, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if shouldWatchNewDir(f, root, nil) {
+		t.Fatal("regular file must not be Add'd as a watch dir")
 	}
 }

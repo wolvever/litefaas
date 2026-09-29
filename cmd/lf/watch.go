@@ -172,81 +172,27 @@ func runWatch(opts watchOptions, stdout, stderr io.Writer) error {
 
 	fmt.Fprintf(stderr, "watching %s (debounce=%s)\n", root, opts.Debounce)
 
-	var (
-		mu       sync.Mutex
-		dirty    bool
-		pending  bool
-		running  bool
-		timer    *time.Timer
-		rebuildN int
-	)
-
-	startRebuild := func() {
-		mu.Lock()
-		if running {
-			pending = true
-			mu.Unlock()
-			return
-		}
-		running = true
-		dirty = false
-		mu.Unlock()
-
-		go func() {
-			for {
-				rebuildN++
-				fmt.Fprintf(stderr, "rebuild #%d…\n", rebuildN)
-				err := doCycle(ctx)
-				if err != nil {
-					fmt.Fprintf(stderr, "rebuild failed: %v\n", err)
-				}
-				mu.Lock()
-				if pending && ctx.Err() == nil {
-					pending = false
-					dirty = false
-					mu.Unlock()
-					continue // coalesce burst into one more pass
-				}
-				running = false
-				mu.Unlock()
-				fmt.Fprintf(stderr, "watching %s (debounce=%s)\n", root, opts.Debounce)
-				return
+	var rebuildN int
+	flight := &rebuildFlight{
+		debounce: opts.Debounce,
+		ctx:      ctx,
+		rebuild: func() {
+			rebuildN++
+			fmt.Fprintf(stderr, "rebuild #%d…\n", rebuildN)
+			if err := doCycle(ctx); err != nil {
+				fmt.Fprintf(stderr, "rebuild failed: %v\n", err)
 			}
-		}()
+		},
+		afterIdle: func() {
+			fmt.Fprintf(stderr, "watching %s (debounce=%s)\n", root, opts.Debounce)
+		},
 	}
-
-	schedule := func() {
-		mu.Lock()
-		defer mu.Unlock()
-		if running {
-			// During rebuild: coalesce to one post-rebuild pass; do not reset timer storm.
-			pending = true
-			return
-		}
-		dirty = true
-		if timer != nil {
-			timer.Stop()
-		}
-		timer = time.AfterFunc(opts.Debounce, func() {
-			mu.Lock()
-			if !dirty {
-				mu.Unlock()
-				return
-			}
-			dirty = false
-			mu.Unlock()
-			startRebuild()
-		})
-	}
+	defer flight.Stop()
 
 	for {
 		select {
 		case <-ctx.Done():
-			mu.Lock()
-			if timer != nil {
-				timer.Stop()
-			}
-			mu.Unlock()
+			flight.Stop()
 			return nil
 		case err, ok := <-watcher.Errors:
 			if !ok {
@@ -261,13 +207,10 @@ func runWatch(opts watchOptions, stdout, stderr io.Writer) error {
 			if relErr != nil {
 				continue
 			}
-			// New directories: add watch if not ignored.
-			if ev.Has(fsnotify.Create) {
-				if info, statErr := os.Stat(ev.Name); statErr == nil && info.IsDir() {
-					if !isIgnoredDirName(info.Name(), opts.Ignore) && ShouldRebuild(rel, opts.Ignore) {
-						_ = watcher.Add(ev.Name)
-					}
-				}
+			// New directories: add watch if not ignored. Use Lstat so symlinks
+			// are never followed / Add'd off-tree (walk already skips them).
+			if ev.Has(fsnotify.Create) && shouldWatchNewDir(ev.Name, root, opts.Ignore) {
+				_ = watcher.Add(ev.Name)
 			}
 			if !ev.Has(fsnotify.Create) && !ev.Has(fsnotify.Write) &&
 				!ev.Has(fsnotify.Remove) && !ev.Has(fsnotify.Rename) &&
@@ -277,7 +220,7 @@ func runWatch(opts watchOptions, stdout, stderr io.Writer) error {
 			if !ShouldRebuild(rel, opts.Ignore) {
 				continue
 			}
-			schedule()
+			flight.Schedule()
 		}
 	}
 }
@@ -323,6 +266,146 @@ func runBuildDeploy(ctx context.Context, dir, stackID string, c *client.Client, 
 		}
 	}
 	return deployResource(c, resolved.Manifest.Resource())
+}
+
+// shouldWatchNewDir reports whether a Create event path should get watcher.Add.
+// Uses Lstat (does not follow links). Symlinks are never added; resolved paths
+// that escape root are also rejected.
+func shouldWatchNewDir(path, root string, extra []string) bool {
+	info, err := os.Lstat(path)
+	if err != nil {
+		return false
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		return false
+	}
+	if !info.IsDir() {
+		return false
+	}
+	if isIgnoredDirName(info.Name(), extra) {
+		return false
+	}
+	rel, err := filepath.Rel(root, path)
+	if err != nil || !ShouldRebuild(rel, extra) {
+		return false
+	}
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return false
+	}
+	resolvedRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		resolvedRoot = root
+	}
+	relOut, err := filepath.Rel(resolvedRoot, resolved)
+	if err != nil {
+		return false
+	}
+	relOut = filepath.ToSlash(relOut)
+	if relOut == ".." || strings.HasPrefix(relOut, "../") {
+		return false
+	}
+	return true
+}
+
+// rebuildFlight coordinates debounce + single-flight rebuilds.
+// Timer fire sets running and clears dirty under one lock (no unlock gap
+// that can lose an intervening Schedule). After each rebuild, continues if
+// pending || dirty.
+type rebuildFlight struct {
+	debounce  time.Duration
+	ctx       context.Context
+	rebuild   func()
+	afterIdle func()
+
+	mu      sync.Mutex
+	dirty   bool
+	pending bool
+	running bool
+	timer   *time.Timer
+}
+
+// Schedule marks work pending. If a rebuild is in flight, coalesces to one
+// post-rebuild pass; otherwise arms/resets the debounce timer.
+func (f *rebuildFlight) Schedule() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.running {
+		f.pending = true
+		return
+	}
+	f.dirty = true
+	if f.timer != nil {
+		f.timer.Stop()
+	}
+	f.timer = time.AfterFunc(f.debounce, f.fire)
+}
+
+// fire starts a rebuild under one critical section: running + clear dirty.
+func (f *rebuildFlight) fire() {
+	f.mu.Lock()
+	if f.running {
+		// Rebuild started somehow while timer was armed — coalesce.
+		f.pending = true
+		f.dirty = false
+		f.mu.Unlock()
+		return
+	}
+	if !f.dirty {
+		f.mu.Unlock()
+		return
+	}
+	f.running = true
+	f.dirty = false
+	f.mu.Unlock()
+	go f.loop()
+}
+
+func (f *rebuildFlight) loop() {
+	for {
+		if f.rebuild != nil {
+			f.rebuild()
+		}
+		f.mu.Lock()
+		cont := (f.pending || f.dirty) && (f.ctx == nil || f.ctx.Err() == nil)
+		if cont {
+			f.pending = false
+			f.dirty = false
+			f.mu.Unlock()
+			continue
+		}
+		f.running = false
+		f.mu.Unlock()
+		if f.afterIdle != nil {
+			f.afterIdle()
+		}
+		return
+	}
+}
+
+// Stop cancels any armed debounce timer.
+func (f *rebuildFlight) Stop() {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.timer != nil {
+		f.timer.Stop()
+		f.timer = nil
+	}
+}
+
+// startNowForTest starts a rebuild immediately (dirty clear + running in one
+// lock), used by race regression tests. Returns false if already running.
+func (f *rebuildFlight) startNowForTest() bool {
+	f.mu.Lock()
+	if f.running {
+		f.mu.Unlock()
+		return false
+	}
+	f.running = true
+	f.dirty = false
+	f.mu.Unlock()
+	go f.loop()
+	return true
 }
 
 // Debouncer collapses events that arrive within Window into a single fire.
