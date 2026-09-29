@@ -270,6 +270,7 @@ func TestLogsMetricsAuthAndLimits(t *testing.T) {
 	t.Cleanup(func() { _ = st.Close() })
 
 	fake := runner.NewFake()
+	fake.Endpoints["hello"] = "http://127.0.0.1:9"
 	fake.LogsText["hello"] = "2026-01-01T00:00:00Z hello from container\n"
 	srv := New(Options{Store: st, Token: "secret", Runner: fake})
 	t.Cleanup(srv.Close)
