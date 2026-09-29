@@ -34,3 +34,9 @@ hints:
   env:
     DATABASE_URL: postgres://app:app@localhost:5432/app
     REDIS_URL: redis://localhost:6379/0
+
+host:
+  build: ["npm", "run", "build"]
+
+verify:
+  health: /healthz

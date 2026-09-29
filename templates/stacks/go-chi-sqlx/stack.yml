@@ -19,3 +19,9 @@ hints:
   sidecars: [postgres]
   env:
     DATABASE_URL: postgres://app:app@localhost:5432/app
+
+host:
+  build: ["go", "test", "./..."]
+
+verify:
+  health: /healthz

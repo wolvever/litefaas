@@ -41,3 +41,9 @@ hints:
     DJANGO_SETTINGS_MODULE: config.settings
     GUNICORN_APP: config.wsgi:application
     PORT: "8080"
+
+host:
+  build: ["python", "-m", "compileall", "."]
+
+verify:
+  health: /healthz

@@ -35,3 +35,6 @@ hints:
     SPRING_DATASOURCE_PASSWORD: app
     DATABASE_URL: postgres://app:app@localhost:5432/app
     REDIS_URL: redis://localhost:6379/0
+
+verify:
+  health: /healthz
