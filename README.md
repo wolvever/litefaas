@@ -81,6 +81,8 @@ cd hello
 ../lf deploy                          # prints deploy summary (edge URLs; secret refs only)
 ../lf invoke hello -d '{"name":"litefaas"}'
 ../lf logs hello --tail 50
+# local edit loop (Docker cutover, not framework HMR):
+# ../lf watch .                       # ensure daemon → build → deploy; rebuild on change
 ```
 
 `--no-auth` keeps the local walkthrough open. Omit it and litefaasd writes a bearer token under the data dir (see [Auth tokens](#auth-tokens)). Multi-service live under [`examples/`](examples/).
@@ -109,7 +111,7 @@ What each step does:
 | `lf invoke` | API | `POST /v1/invoke/{name}` reverse-proxies to the container (wakes a stopped function) |
 | `lf logs` | API + Docker | `GET /v1/functions/{name}/logs` tails `docker logs` |
 
-Re-run `lf build && lf deploy` after editing `handler.go`. `lf delete hello` removes the resource and stops the container.
+Prefer `lf watch .` after the first deploy — it debounces file changes, runs `lf build` → `lf deploy`, and prints the same deploy summary (Docker image cutover, **not** framework HMR; see [vs Netlify / Vercel](docs/vs-netlify-vercel.md)). Or re-run `lf build && lf deploy` manually. `lf delete hello` removes the resource and stops the container.
 
 ## Java and Python (Phase 3)
 
@@ -457,7 +459,7 @@ See GitHub milestone [v0.1.0-alpha](https://github.com/wolvever/litefaas/milesto
 
 ## Non-goals (core)
 
-No CDN, no team UI/billing, no managed DBs in core, no ACME-in-daemon, no Kubernetes control plane, no pack-store SaaS, no `lf watch` (P1). Packs stay data; litefaasd stays dumb.
+No CDN, no team UI/billing, no managed DBs in core, no ACME-in-daemon, no Kubernetes control plane, no pack-store SaaS. Packs stay data; litefaasd stays dumb. `lf watch` is CLI-only (local Docker rebuild loop — not Netlify remote watch / not in-container HMR).
 
 ## License
 

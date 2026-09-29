@@ -225,6 +225,7 @@ lf init <name> --runtime go|java|python|node|dockerfile|static [--preset ...] [-
 lf detect [path] [--stack ID] [--json]   # printable plan (no Docker)
 lf build [path] [--stack ID] [--plan] [--json]
 lf deploy [path] [--stack ID] [--gateway http://127.0.0.1:8080]  # prints deploy summary
+lf watch [path] [--stack ID] [--debounce 500ms]  # ensure daemon → build → deploy on change (Docker cutover)
 lf invoke <name> [-d payload]
 lf logs <name>
 lf list
