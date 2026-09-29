@@ -142,16 +142,25 @@ func (c *Client) ClearEdgeRules() error {
 
 type SecretRef struct {
 	Name string `json:"name"`
+	Env  string `json:"env,omitempty"`
 }
 
 type Secret struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
+	Env   string `json:"env,omitempty"`
 }
 
-func (c *Client) SecretList() ([]SecretRef, error) {
+func secretEnvQuery(env string) string {
+	if env == "" {
+		return ""
+	}
+	return "?env=" + url.QueryEscape(env)
+}
+
+func (c *Client) SecretList(env string) ([]SecretRef, error) {
 	var out []SecretRef
-	if err := c.do(http.MethodGet, "/v1/secrets", nil, &out); err != nil {
+	if err := c.do(http.MethodGet, "/v1/secrets"+secretEnvQuery(env), nil, &out); err != nil {
 		return nil, err
 	}
 	if out == nil {
@@ -161,23 +170,35 @@ func (c *Client) SecretList() ([]SecretRef, error) {
 }
 
 func (c *Client) SecretPut(name, value string) (SecretRef, error) {
+	return c.SecretPutEnv("", name, value)
+}
+
+func (c *Client) SecretPutEnv(env, name, value string) (SecretRef, error) {
 	var out SecretRef
-	if err := c.do(http.MethodPut, "/v1/secrets/"+url.PathEscape(name), map[string]string{"value": value}, &out); err != nil {
+	if err := c.do(http.MethodPut, "/v1/secrets/"+url.PathEscape(name)+secretEnvQuery(env), map[string]string{"value": value}, &out); err != nil {
 		return SecretRef{}, err
 	}
 	return out, nil
 }
 
 func (c *Client) SecretGet(name string) (Secret, error) {
+	return c.SecretGetEnv("", name)
+}
+
+func (c *Client) SecretGetEnv(env, name string) (Secret, error) {
 	var out Secret
-	if err := c.do(http.MethodGet, "/v1/secrets/"+url.PathEscape(name), nil, &out); err != nil {
+	if err := c.do(http.MethodGet, "/v1/secrets/"+url.PathEscape(name)+secretEnvQuery(env), nil, &out); err != nil {
 		return Secret{}, err
 	}
 	return out, nil
 }
 
 func (c *Client) SecretDelete(name string) error {
-	return c.do(http.MethodDelete, "/v1/secrets/"+url.PathEscape(name), nil, nil)
+	return c.SecretDeleteEnv("", name)
+}
+
+func (c *Client) SecretDeleteEnv(env, name string) error {
+	return c.do(http.MethodDelete, "/v1/secrets/"+url.PathEscape(name)+secretEnvQuery(env), nil, nil)
 }
 
 type Metrics struct {
@@ -259,12 +280,17 @@ type DeployResult struct {
 }
 
 func (c *Client) Deploy(name, image string) (DeployResult, error) {
+	return c.DeployEnv(name, image, "")
+}
+
+func (c *Client) DeployEnv(name, image, env string) (DeployResult, error) {
 	var out DeployResult
 	body := map[string]string{}
 	if image != "" {
 		body["image"] = image
 	}
-	if err := c.do(http.MethodPost, "/v1/functions/"+name+"/deploy", body, &out); err != nil {
+	path := "/v1/functions/" + name + "/deploy" + secretEnvQuery(env)
+	if err := c.do(http.MethodPost, path, body, &out); err != nil {
 		return DeployResult{}, err
 	}
 	return out, nil

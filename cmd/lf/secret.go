@@ -36,6 +36,7 @@ func secretSet(args []string) error {
 	fs.SetOutput(io.Discard)
 	value := fs.String("value", "", "secret value")
 	fromFile := fs.String("from-file", "", "read secret value from file")
+	env := fs.String("env", "", "secret env bag (default: default; not CLI context)")
 	gw := fs.String("gateway", "", "litefaasd URL")
 	tok := fs.String("token", "", "bearer token")
 	cfg := fs.String("config-dir", "", "CLI config directory")
@@ -44,7 +45,7 @@ func secretSet(args []string) error {
 		return err
 	}
 	if len(rest) < 1 {
-		return fmt.Errorf("usage: lf secret set <name> [--value V | --from-file PATH]")
+		return fmt.Errorf("usage: lf secret set <name> [--value V | --from-file PATH] [--env NAME]")
 	}
 	name := rest[0]
 	val := *value
@@ -73,24 +74,37 @@ func secretSet(args []string) error {
 	if err != nil {
 		return err
 	}
-	out, err := c.SecretPut(name, val)
+	out, err := c.SecretPutEnv(*env, name, val)
 	if err != nil {
 		return err
 	}
-	fmt.Printf("secret %s set\n", out.Name)
+	if out.Env != "" && out.Env != secret.DefaultEnv {
+		fmt.Printf("secret %s set (env=%s)\n", out.Name, out.Env)
+	} else {
+		fmt.Printf("secret %s set\n", out.Name)
+	}
 	return nil
 }
 
 func secretGet(args []string) error {
-	gw, tok, cfg, rest := gatewayFlags(args)
-	if len(rest) < 1 {
-		return fmt.Errorf("usage: lf secret get <name>")
-	}
-	c, err := resolveClient(gw, tok, cfg)
+	fs := flag.NewFlagSet("secret get", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	env := fs.String("env", "", "secret env bag")
+	gw := fs.String("gateway", "", "litefaasd URL")
+	tok := fs.String("token", "", "bearer token")
+	cfg := fs.String("config-dir", "", "CLI config directory")
+	rest, err := parseMixed(fs, args)
 	if err != nil {
 		return err
 	}
-	out, err := c.SecretGet(rest[0])
+	if len(rest) < 1 {
+		return fmt.Errorf("usage: lf secret get <name> [--env NAME]")
+	}
+	c, err := resolveClient(*gw, *tok, *cfg)
+	if err != nil {
+		return err
+	}
+	out, err := c.SecretGetEnv(*env, rest[0])
 	if err != nil {
 		return err
 	}
@@ -99,12 +113,21 @@ func secretGet(args []string) error {
 }
 
 func secretList(args []string) error {
-	gw, tok, cfg, _ := gatewayFlags(args)
-	c, err := resolveClient(gw, tok, cfg)
+	fs := flag.NewFlagSet("secret list", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	env := fs.String("env", "", "secret env bag")
+	gw := fs.String("gateway", "", "litefaasd URL")
+	tok := fs.String("token", "", "bearer token")
+	cfg := fs.String("config-dir", "", "CLI config directory")
+	_, err := parseMixed(fs, args)
 	if err != nil {
 		return err
 	}
-	list, err := c.SecretList()
+	c, err := resolveClient(*gw, *tok, *cfg)
+	if err != nil {
+		return err
+	}
+	list, err := c.SecretList(*env)
 	if err != nil {
 		return err
 	}
@@ -115,15 +138,24 @@ func secretList(args []string) error {
 }
 
 func secretDelete(args []string) error {
-	gw, tok, cfg, rest := gatewayFlags(args)
-	if len(rest) < 1 {
-		return fmt.Errorf("usage: lf secret delete <name>")
-	}
-	c, err := resolveClient(gw, tok, cfg)
+	fs := flag.NewFlagSet("secret delete", flag.ContinueOnError)
+	fs.SetOutput(io.Discard)
+	env := fs.String("env", "", "secret env bag")
+	gw := fs.String("gateway", "", "litefaasd URL")
+	tok := fs.String("token", "", "bearer token")
+	cfg := fs.String("config-dir", "", "CLI config directory")
+	rest, err := parseMixed(fs, args)
 	if err != nil {
 		return err
 	}
-	if err := c.SecretDelete(rest[0]); err != nil {
+	if len(rest) < 1 {
+		return fmt.Errorf("usage: lf secret delete <name> [--env NAME]")
+	}
+	c, err := resolveClient(*gw, *tok, *cfg)
+	if err != nil {
+		return err
+	}
+	if err := c.SecretDeleteEnv(*env, rest[0]); err != nil {
 		return err
 	}
 	fmt.Printf("secret %s deleted\n", rest[0])
@@ -134,6 +166,7 @@ func secretImport(args []string) error {
 	fs := flag.NewFlagSet("secret import", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	dryRun := fs.Bool("dry-run", false, "parse and list names without calling the API")
+	env := fs.String("env", "", "secret env bag to import into (default: default)")
 	gw := fs.String("gateway", "", "litefaasd URL")
 	tok := fs.String("token", "", "bearer token")
 	cfg := fs.String("config-dir", "", "CLI config directory")
@@ -142,7 +175,7 @@ func secretImport(args []string) error {
 		return err
 	}
 	if len(rest) < 1 {
-		return fmt.Errorf("usage: lf secret import <file> [--dry-run]")
+		return fmt.Errorf("usage: lf secret import <file> [--env NAME] [--dry-run]")
 	}
 	raw, err := os.ReadFile(rest[0])
 	if err != nil {
@@ -159,8 +192,12 @@ func secretImport(args []string) error {
 	for _, p := range pairs {
 		names = append(names, p.Name)
 	}
+	envLabel := *env
+	if envLabel == "" {
+		envLabel = secret.DefaultEnv
+	}
 	if *dryRun {
-		fmt.Printf("would import %d secrets: %s\n", len(names), strings.Join(names, " "))
+		fmt.Printf("would import %d secrets into env %s: %s\n", len(names), envLabel, strings.Join(names, " "))
 		return nil
 	}
 	c, err := resolveClient(*gw, *tok, *cfg)
@@ -169,7 +206,7 @@ func secretImport(args []string) error {
 	}
 	succeeded := 0
 	for _, p := range pairs {
-		if _, err := c.SecretPut(p.Name, p.Value); err != nil {
+		if _, err := c.SecretPutEnv(*env, p.Name, p.Value); err != nil {
 			if succeeded > 0 {
 				return fmt.Errorf("imported %d secrets (%s); failed on %s: %w", succeeded, strings.Join(names[:succeeded], " "), p.Name, err)
 			}
@@ -177,7 +214,7 @@ func secretImport(args []string) error {
 		}
 		succeeded++
 	}
-	fmt.Printf("imported %d secrets: %s\n", len(names), strings.Join(names, " "))
+	fmt.Printf("imported %d secrets into env %s: %s\n", len(names), envLabel, strings.Join(names, " "))
 	return nil
 }
 

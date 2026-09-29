@@ -88,7 +88,7 @@ Usage:
   lf init <name> --runtime go|java|python|node|dockerfile|static [--preset ...] [--kind function|backend|frontend]
   lf detect [path] [--stack ID] [--json]  Print stack/pack plan without building
   lf build [path] [--stack ID] [--plan] [--json]  docker build (or --plan dry-run)
-  lf deploy [path] [--stack ID] Register + deploy the container via the API
+  lf deploy [path] [--stack ID] [--env NAME]  Register + deploy (optional secret env bag)
   lf invoke <name> [-d BODY] POST /v1/invoke/{name}
   lf list                    List resources
   lf delete <name> [--prune-volumes]  Delete resource (opt-in volume prune)
@@ -98,7 +98,7 @@ Usage:
   lf routes clear            Drop the override; derive routes from manifests
   lf metrics                 Basic control-plane counters (GET /v1/metrics)
   lf token                   Print the resolved bearer token
-  lf secret set|get|list|delete|import  Manage encrypt-at-rest secrets (${secret:name} in env)
+  lf secret set|get|list|delete|import [--env NAME]  Secrets in named bags (default env; not CLI context)
   lf stacks [--json]          List embedded stack packs (and LITEFAAS_STACKS_DIR overlays)
   lf check [path] [--stack ID] [--skip-host] [--skip-smoke] [--json]  Host → image → smoke preflight
   lf watch [path] [--stack ID] [--debounce 500ms]  Watch → build → deploy (Docker cutover)

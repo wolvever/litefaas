@@ -15,11 +15,17 @@ type secretValueRequest struct {
 
 type secretNameResponse struct {
 	Name string `json:"name"`
+	Env  string `json:"env,omitempty"`
 }
 
 type secretValueResponse struct {
 	Name  string `json:"name"`
 	Value string `json:"value"`
+	Env   string `json:"env,omitempty"`
+}
+
+func secretEnvFromRequest(r *http.Request) (string, error) {
+	return secret.NormalizeEnv(r.URL.Query().Get("env"))
 }
 
 func (s *Server) handleSecretList(w http.ResponseWriter, r *http.Request) {
@@ -27,14 +33,19 @@ func (s *Server) handleSecretList(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "secrets store not configured"})
 		return
 	}
-	names, err := s.secrets.List()
+	env, err := secretEnvFromRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
+		return
+	}
+	names, err := s.secrets.ListEnv(env)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorBody{Error: "list secrets failed"})
 		return
 	}
 	out := make([]secretNameResponse, 0, len(names))
 	for _, n := range names {
-		out = append(out, secretNameResponse{Name: n})
+		out = append(out, secretNameResponse{Name: n, Env: env})
 	}
 	writeJSON(w, http.StatusOK, out)
 }
@@ -42,6 +53,11 @@ func (s *Server) handleSecretList(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleSecretPut(w http.ResponseWriter, r *http.Request) {
 	if s.secrets == nil {
 		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "secrets store not configured"})
+		return
+	}
+	env, err := secretEnvFromRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
 		return
 	}
 	name := r.PathValue("name")
@@ -54,11 +70,11 @@ func (s *Server) handleSecretPut(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid JSON body"})
 		return
 	}
-	if err := s.secrets.Set(name, req.Value); err != nil {
+	if err := s.secrets.SetEnv(env, name, req.Value); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, secretNameResponse{Name: name})
+	writeJSON(w, http.StatusOK, secretNameResponse{Name: name, Env: env})
 }
 
 func (s *Server) handleSecretGet(w http.ResponseWriter, r *http.Request) {
@@ -66,8 +82,13 @@ func (s *Server) handleSecretGet(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "secrets store not configured"})
 		return
 	}
+	env, err := secretEnvFromRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
+		return
+	}
 	name := r.PathValue("name")
-	val, err := s.secrets.Get(name)
+	val, err := s.secrets.GetEnv(env, name)
 	if errors.Is(err, secret.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, errorBody{Error: "not found"})
 		return
@@ -76,7 +97,7 @@ func (s *Server) handleSecretGet(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
 		return
 	}
-	writeJSON(w, http.StatusOK, secretValueResponse{Name: name, Value: val})
+	writeJSON(w, http.StatusOK, secretValueResponse{Name: name, Value: val, Env: env})
 }
 
 func (s *Server) handleSecretDelete(w http.ResponseWriter, r *http.Request) {
@@ -84,8 +105,13 @@ func (s *Server) handleSecretDelete(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "secrets store not configured"})
 		return
 	}
+	env, err := secretEnvFromRequest(r)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
+		return
+	}
 	name := r.PathValue("name")
-	err := s.secrets.Delete(name)
+	err = s.secrets.DeleteEnv(env, name)
 	if errors.Is(err, secret.ErrNotFound) {
 		writeJSON(w, http.StatusNotFound, errorBody{Error: "not found"})
 		return

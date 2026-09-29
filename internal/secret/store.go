@@ -18,26 +18,30 @@ import (
 const (
 	KeyFileName = "secrets.key"
 	DirName     = "secrets"
+	DefaultEnv  = "default"
 )
 
 var (
 	ErrNotFound = errors.New("secret not found")
 	nameRE      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	envRE       = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
 	refRE       = regexp.MustCompile(`\$\{secret:([A-Za-z0-9][A-Za-z0-9._-]{0,63})\}`)
 )
 
-// Store persists AES-GCM ciphertext files under data-dir/secrets/.
+// Store persists AES-GCM ciphertext files under data-dir/secrets/<env>/.
 type Store struct {
 	dir  string
 	aead cipher.AEAD
 }
 
 // Open loads or creates the host key under dataDir and returns a Store.
+// Flat secrets/*.enc files are migrated once into secrets/default/.
 func Open(dataDir string) (*Store, error) {
 	if dataDir == "" {
 		return nil, fmt.Errorf("data-dir is required")
 	}
-	if err := os.MkdirAll(filepath.Join(dataDir, DirName), 0o700); err != nil {
+	secretsRoot := filepath.Join(dataDir, DirName)
+	if err := os.MkdirAll(secretsRoot, 0o700); err != nil {
 		return nil, err
 	}
 	key, err := loadOrCreateKey(filepath.Join(dataDir, KeyFileName))
@@ -52,7 +56,11 @@ func Open(dataDir string) (*Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Store{dir: filepath.Join(dataDir, DirName), aead: aead}, nil
+	s := &Store{dir: secretsRoot, aead: aead}
+	if err := s.migrateFlatToDefault(); err != nil {
+		return nil, err
+	}
+	return s, nil
 }
 
 func loadOrCreateKey(path string) ([]byte, error) {
@@ -91,32 +99,112 @@ func ValidateName(name string) error {
 	return nil
 }
 
-func (s *Store) path(name string) string {
-	return filepath.Join(s.dir, name+".enc")
+// ValidateEnv checks a secret env bag name (not CLI gateway context).
+func ValidateEnv(env string) error {
+	if env == "" {
+		return fmt.Errorf("secret env is empty")
+	}
+	if !envRE.MatchString(env) {
+		return fmt.Errorf("invalid secret env %q", env)
+	}
+	return nil
 }
 
-// Set encrypts and writes value for name (overwrites).
+// NormalizeEnv returns DefaultEnv when env is empty; otherwise validates.
+func NormalizeEnv(env string) (string, error) {
+	if env == "" {
+		return DefaultEnv, nil
+	}
+	if err := ValidateEnv(env); err != nil {
+		return "", err
+	}
+	return env, nil
+}
+
+func (s *Store) migrateFlatToDefault() error {
+	entries, err := os.ReadDir(s.dir)
+	if err != nil {
+		return err
+	}
+	var flat []string
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		n := e.Name()
+		if strings.HasSuffix(n, ".enc") {
+			flat = append(flat, n)
+		}
+	}
+	if len(flat) == 0 {
+		return nil
+	}
+	destDir := filepath.Join(s.dir, DefaultEnv)
+	if err := os.MkdirAll(destDir, 0o700); err != nil {
+		return err
+	}
+	for _, n := range flat {
+		src := filepath.Join(s.dir, n)
+		dst := filepath.Join(destDir, n)
+		if _, err := os.Stat(dst); err == nil {
+			// Already migrated; drop leftover flat file.
+			_ = os.Remove(src)
+			continue
+		}
+		if err := os.Rename(src, dst); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func (s *Store) path(env, name string) string {
+	return filepath.Join(s.dir, env, name+".enc")
+}
+
+// Set encrypts and writes value for name in the default env (overwrites).
 func (s *Store) Set(name, value string) error {
+	return s.SetEnv(DefaultEnv, name, value)
+}
+
+// SetEnv encrypts and writes value for name in env.
+func (s *Store) SetEnv(env, name, value string) error {
+	env, err := NormalizeEnv(env)
+	if err != nil {
+		return err
+	}
 	if err := ValidateName(name); err != nil {
 		return err
 	}
 	if value == "" {
 		return fmt.Errorf("secret value is empty")
 	}
+	if err := os.MkdirAll(filepath.Join(s.dir, env), 0o700); err != nil {
+		return err
+	}
 	nonce := make([]byte, s.aead.NonceSize())
 	if _, err := rand.Read(nonce); err != nil {
 		return err
 	}
 	ct := s.aead.Seal(nonce, nonce, []byte(value), nil)
-	return os.WriteFile(s.path(name), ct, 0o600)
+	return os.WriteFile(s.path(env, name), ct, 0o600)
 }
 
-// Get decrypts and returns the plaintext value.
+// Get decrypts and returns the plaintext value from the default env.
 func (s *Store) Get(name string) (string, error) {
+	return s.GetEnv(DefaultEnv, name)
+}
+
+// GetEnv decrypts and returns the plaintext value from env.
+func (s *Store) GetEnv(env, name string) (string, error) {
+	env, err := NormalizeEnv(env)
+	if err != nil {
+		return "", err
+	}
 	if err := ValidateName(name); err != nil {
 		return "", err
 	}
-	raw, err := os.ReadFile(s.path(name))
+	raw, err := os.ReadFile(s.path(env, name))
 	if err != nil {
 		if os.IsNotExist(err) {
 			return "", ErrNotFound
@@ -134,22 +222,43 @@ func (s *Store) Get(name string) (string, error) {
 	return string(pt), nil
 }
 
-// Delete removes a secret file.
+// Delete removes a secret file from the default env.
 func (s *Store) Delete(name string) error {
+	return s.DeleteEnv(DefaultEnv, name)
+}
+
+// DeleteEnv removes a secret file from env.
+func (s *Store) DeleteEnv(env, name string) error {
+	env, err := NormalizeEnv(env)
+	if err != nil {
+		return err
+	}
 	if err := ValidateName(name); err != nil {
 		return err
 	}
-	err := os.Remove(s.path(name))
+	err = os.Remove(s.path(env, name))
 	if os.IsNotExist(err) {
 		return ErrNotFound
 	}
 	return err
 }
 
-// List returns sorted secret names (no values).
+// List returns sorted secret names in the default env (no values).
 func (s *Store) List() ([]string, error) {
-	entries, err := os.ReadDir(s.dir)
+	return s.ListEnv(DefaultEnv)
+}
+
+// ListEnv returns sorted secret names in env (no values).
+func (s *Store) ListEnv(env string) ([]string, error) {
+	env, err := NormalizeEnv(env)
 	if err != nil {
+		return nil, err
+	}
+	entries, err := os.ReadDir(filepath.Join(s.dir, env))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []string{}, nil
+		}
 		return nil, err
 	}
 	var names []string
@@ -164,6 +273,18 @@ func (s *Store) List() ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// GetterFor returns a Get closure scoped to env (for ResolveEnv).
+func (s *Store) GetterFor(env string) (func(string) (string, error), error) {
+	env, err := NormalizeEnv(env)
+	if err != nil {
+		return nil, err
+	}
+	e := env
+	return func(name string) (string, error) {
+		return s.GetEnv(e, name)
+	}, nil
 }
 
 // ResolveEnv expands ${secret:name} references in env values.
