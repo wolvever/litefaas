@@ -154,3 +154,33 @@ func MergeResponseHeaders(hdr http.Header, path string, rules []EdgeRule) {
 		hdr.Set(k, v)
 	}
 }
+
+// DraftPathPrefix is the built-in single-node draft/alias URL prefix.
+const DraftPathPrefix = "/--draft/"
+
+// ParseDraftPath extracts resource name from /--draft/<name> or /--draft/<name>/….
+func ParseDraftPath(path string) (name string, ok bool) {
+	if !strings.HasPrefix(path, DraftPathPrefix) {
+		return "", false
+	}
+	rest := strings.TrimPrefix(path, DraftPathPrefix)
+	if rest == "" {
+		return "", false
+	}
+	name, _, _ = strings.Cut(rest, "/")
+	if name == "" || strings.Contains(name, "..") {
+		return "", false
+	}
+	return name, true
+}
+
+// DraftPrefix returns the strip-prefix route path for a resource (/--draft/<name>).
+func DraftPrefix(name string) string {
+	return DraftPathPrefix + name
+}
+
+// DraftURL builds the printable draft URL for a gateway + resource name.
+func DraftURL(gateway, name string) string {
+	gw := strings.TrimRight(gateway, "/")
+	return gw + DraftPrefix(name) + "/"
+}

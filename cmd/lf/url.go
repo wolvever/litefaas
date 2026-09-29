@@ -13,13 +13,14 @@ import (
 
 	"github.com/wolvever/litefaas/internal/client"
 	"github.com/wolvever/litefaas/internal/manifest"
+	"github.com/wolvever/litefaas/internal/proxy"
 	"github.com/wolvever/litefaas/internal/types"
 )
 
 type edgeURLInfo struct {
 	Name string `json:"name"`
 	URL  string `json:"url"`
-	Kind string `json:"kind"` // http | invoke
+	Kind string `json:"kind"` // http | invoke | draft
 }
 
 func cmdURL(args []string) error {
@@ -27,6 +28,7 @@ func cmdURL(args []string) error {
 	fs.SetOutput(io.Discard)
 	asJSON := fs.Bool("json", false, "print JSON")
 	all := fs.Bool("all", false, "print all resolved resources (multi-service)")
+	draft := fs.Bool("draft", false, "print /--draft/<name>/ alias URL")
 	gw := fs.String("gateway", "", "litefaasd URL")
 	tok := fs.String("token", "", "bearer token")
 	cfg := fs.String("config-dir", "", "CLI config directory")
@@ -41,6 +43,12 @@ func cmdURL(args []string) error {
 	infos, err := resolveEdgeURLs(c, rest, *all)
 	if err != nil {
 		return err
+	}
+	if *draft {
+		for i := range infos {
+			infos[i].URL = proxy.DraftURL(c.Gateway, infos[i].Name)
+			infos[i].Kind = "draft"
+		}
 	}
 	if *asJSON {
 		enc := json.NewEncoder(os.Stdout)
@@ -59,6 +67,7 @@ func cmdURL(args []string) error {
 func cmdOpen(args []string) error {
 	fs := flag.NewFlagSet("open", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
+	draft := fs.Bool("draft", false, "open /--draft/<name>/ alias URL")
 	gw := fs.String("gateway", "", "litefaasd URL")
 	tok := fs.String("token", "", "bearer token")
 	cfg := fs.String("config-dir", "", "CLI config directory")
@@ -75,6 +84,10 @@ func cmdOpen(args []string) error {
 		return err
 	}
 	info := infos[0]
+	if *draft {
+		info.URL = proxy.DraftURL(c.Gateway, info.Name)
+		info.Kind = "draft"
+	}
 	fmt.Println(info.URL)
 	if info.Kind == "invoke" {
 		fmt.Fprintln(os.Stderr, "open: invoke URL is POST-only; not opening a browser")
