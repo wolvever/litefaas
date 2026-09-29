@@ -42,7 +42,7 @@ func formatDeploySummary(w io.Writer, gateway string, res types.Resource, dep cl
 	gw := strings.TrimRight(gateway, "/")
 	wrote := false
 	if res.Kind == types.KindFunction {
-		fmt.Fprintf(w, "  invoke:  POST %s/v1/invoke/%s\n", gw, res.Name)
+		fmt.Fprintf(w, "  invoke:  POST %s\n", invokeURL(gw, res.Name))
 		wrote = true
 	}
 	for _, tr := range res.Triggers {
@@ -94,4 +94,44 @@ func formatDeploySummary(w io.Writer, gateway string, res types.Resource, dep cl
 		fmt.Fprintf(w, "secrets:   %s\n", strings.Join(parts, "  "))
 	}
 	fmt.Fprintln(w, "──────────────────────────────────────────────────")
+}
+
+// edgeHTTPURLs returns gateway+path for each http trigger (same rules as the deploy summary).
+func edgeHTTPURLs(gateway string, res types.Resource) []string {
+	gw := strings.TrimRight(gateway, "/")
+	var out []string
+	for _, tr := range res.Triggers {
+		typ := strings.ToLower(strings.TrimSpace(tr.Type))
+		if typ != "" && typ != "http" {
+			continue
+		}
+		path := tr.Path
+		if path == "" {
+			path = "/"
+		}
+		if !strings.HasPrefix(path, "/") {
+			path = "/" + path
+		}
+		out = append(out, gw+path)
+	}
+	return out
+}
+
+// invokeURL is the POST invoke endpoint for a function resource.
+func invokeURL(gateway, name string) string {
+	gw := strings.TrimRight(gateway, "/")
+	return gw + "/v1/invoke/" + name
+}
+
+// primaryEdgeURL picks the first http trigger URL, else the invoke URL for functions.
+// kind is "http" or "invoke". Returns an error when neither exists.
+func primaryEdgeURL(gateway string, res types.Resource) (url string, kind string, err error) {
+	urls := edgeHTTPURLs(gateway, res)
+	if len(urls) > 0 {
+		return urls[0], "http", nil
+	}
+	if res.Kind == types.KindFunction {
+		return invokeURL(gateway, res.Name), "invoke", nil
+	}
+	return "", "", fmt.Errorf("resource %q has no http trigger", res.Name)
 }

@@ -69,6 +69,10 @@ func run(args []string) error {
 		return cmdCheck(args[1:])
 	case "watch":
 		return cmdWatch(args[1:])
+	case "url":
+		return cmdURL(args[1:])
+	case "open":
+		return cmdOpen(args[1:])
 	default:
 		return fmt.Errorf("unknown command %q\n\nRun 'lf help' for usage", args[0])
 	}
@@ -94,10 +98,12 @@ Usage:
   lf routes clear            Drop the override; derive routes from manifests
   lf metrics                 Basic control-plane counters (GET /v1/metrics)
   lf token                   Print the resolved bearer token
-  lf secret set|get|list|delete  Manage encrypt-at-rest secrets (${secret:name} in env)
+  lf secret set|get|list|delete|import  Manage encrypt-at-rest secrets (${secret:name} in env)
   lf stacks [--json]          List embedded stack packs (and LITEFAAS_STACKS_DIR overlays)
   lf check [path] [--stack ID] [--skip-host] [--skip-smoke] [--json]  Host → image → smoke preflight
   lf watch [path] [--stack ID] [--debounce 500ms]  Watch → build → deploy (Docker cutover)
+  lf url [name|path] [--all] [--json]  Print primary edge/invoke URL
+  lf open [name|path]        Open primary edge URL in the default browser
   lf context                 Show / list / create / use CLI contexts
   lf help                    Show this help
 

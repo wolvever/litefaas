@@ -118,3 +118,29 @@ func TestDeployResultDecode(t *testing.T) {
 		t.Fatalf("got %+v", res)
 	}
 }
+
+func TestClientGet(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	hs := httptest.NewServer(api.New(api.Options{Store: st, Token: "s", Runner: runner.NewFake()}))
+	t.Cleanup(hs.Close)
+
+	c := New(hs.URL, "s")
+	if _, err := c.Get("missing"); err == nil {
+		t.Fatal("expected miss")
+	}
+	created, err := c.Create(types.Resource{Name: "web", Kind: types.KindFrontend, Runtime: types.RuntimeStatic, Image: "web:latest"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := c.Get("web")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != created.Name || got.Kind != types.KindFrontend {
+		t.Fatalf("got %+v", got)
+	}
+}

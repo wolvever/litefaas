@@ -112,7 +112,7 @@ What each step does:
 | `lf invoke` | API | `POST /v1/invoke/{name}` reverse-proxies to the container (wakes a stopped function) |
 | `lf logs` | API + Docker | `GET /v1/functions/{name}/logs` tails `docker logs` |
 
-Prefer `lf check .` before the first `lf up` / deploy to prove host recipes + image boot (pack `host.build` → `docker build` → one-shot health smoke). Prefer `lf watch .` after the first deploy — it debounces file changes, runs `lf build` → `lf deploy`, and prints the same deploy summary (Docker image cutover, **not** framework HMR; see [vs Netlify / Vercel](docs/vs-netlify-vercel.md)). Or re-run `lf build && lf deploy` manually. `lf delete hello` removes the resource and stops the container. `lf up --check` runs the same preflight on `.` and fails closed before starting/reusing litefaasd.
+Prefer `lf check .` before the first `lf up` / deploy to prove host recipes + image boot (pack `host.build` → `docker build` → one-shot health smoke). Prefer `lf watch .` after the first deploy — it debounces file changes, runs `lf build` → `lf deploy`, and prints the same deploy summary (Docker image cutover, **not** framework HMR; see [vs Netlify / Vercel](docs/vs-netlify-vercel.md)). Or re-run `lf build && lf deploy` manually. After deploy, `lf url [name|path]` prints the primary edge (or invoke) URL; `lf open` opens it in your browser (skips browser for invoke-only functions). `lf delete hello` removes the resource and stops the container. `lf up --check` runs the same preflight on `.` and fails closed before starting/reusing litefaasd.
 
 ## Java and Python (Phase 3)
 
@@ -309,6 +309,7 @@ Treat `--data-dir` like a private key store (`chmod 700`); backups of that direc
 
 ```bash
 ./lf secret set db --value 'postgres://app:app@localhost:5432/app'
+./lf secret import .env                 # upsert KEY=VALUE lines; prints names only
 ./lf secret list
 ./lf secret get db
 ./lf secret delete db
