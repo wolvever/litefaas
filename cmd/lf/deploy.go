@@ -103,6 +103,6 @@ func applyProjectEdgeRules(c *client.Client, dir string) error {
 			nRedir++
 		}
 	}
-	fmt.Printf("edge rules: %d redirect/rewrite, %d header (from _redirects / netlify.toml)\n", nRedir, nHdr)
+	fmt.Printf("edge rules: %d redirect/rewrite, %d header (from _redirects / netlify.toml / vercel.json)\n", nRedir, nHdr)
 	return nil
 }
