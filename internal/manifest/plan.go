@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/wolvever/litefaas/internal/netlifycompat"
 	"github.com/wolvever/litefaas/internal/stackpack"
 	"github.com/wolvever/litefaas/internal/types"
 	"github.com/wolvever/litefaas/templates"
@@ -160,6 +161,17 @@ func FormatPlan(w io.Writer, b *PlanBundle) error {
 		if err := formatOnePlan(w, p); err != nil {
 			return err
 		}
+	}
+	if rules, err := netlifycompat.LoadProject(b.Path); err == nil && len(rules) > 0 {
+		nRedir, nHdr := 0, 0
+		for _, r := range rules {
+			if r.Status == 0 {
+				nHdr++
+			} else {
+				nRedir++
+			}
+		}
+		fmt.Fprintf(w, "\nedge rules:  %d redirect/rewrite, %d header (from _redirects / netlify.toml)\n", nRedir, nHdr)
 	}
 	return nil
 }

@@ -27,6 +27,7 @@ Global frontend DX: CDN edge, git-OAuth previews, team billing, managed platform
 - Deploy summary with edge URLs (no secret values)
 - Install UX (`install.sh` + release binaries) and `make demo`
 - Local rebuild loop (`lf watch`) — debounce → Docker build → API deploy cutover (Netlify Dev-feel; **not** framework HMR inside the container, and **not** `netlify watch` waiting on remote CDN deploys)
+- `_redirects` + thin `netlify.toml` `[[redirects]]` / `[[headers]]` → gateway edge rules (data, not Netlify SaaS; force/`Role`/`Query` skipped in MVP)
 
 ## Explicit non-goals (core)
 

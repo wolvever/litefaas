@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strings"
 
+	"github.com/wolvever/litefaas/internal/netlifycompat"
 	"github.com/wolvever/litefaas/internal/types"
 )
 
@@ -17,6 +18,9 @@ type Route struct {
 	StripPrefix bool   `json:"strip_prefix,omitempty"`
 	SPA         bool   `json:"spa,omitempty"`
 }
+
+// EdgeRule is the gateway JSON shape for redirects/rewrites/headers (alias).
+type EdgeRule = netlifycompat.EdgeRule
 
 func matchPrefix(path, routePath string) bool {
 	if routePath == "" {
@@ -117,4 +121,36 @@ func FromResources(resources []types.Resource, endpoints map[string]string) []Ro
 		out = []Route{}
 	}
 	return out
+}
+
+// ApplyEdgeRules evaluates edge rules before resource routing.
+// Redirect (3xx) writes the response and returns handled=true.
+// Rewrite (200) mutates r.URL.Path and returns rewritten=true (not handled).
+func ApplyEdgeRules(w http.ResponseWriter, r *http.Request, rules []EdgeRule) (handled bool, rewritten bool) {
+	if len(rules) == 0 {
+		return false, false
+	}
+	m, ok := netlifycompat.MatchPath(r.URL.Path, rules)
+	if !ok {
+		return false, false
+	}
+	switch {
+	case m.Rule.Status >= 301 && m.Rule.Status <= 308:
+		http.Redirect(w, r, m.Dest, m.Rule.Status)
+		return true, false
+	case m.Rule.Status == 200:
+		r.URL.Path = m.Dest
+		if r.URL.RawPath != "" {
+			r.URL.RawPath = m.Dest
+		}
+		return false, true
+	}
+	return false, false
+}
+
+// MergeResponseHeaders sets matching header-only rule values on hdr.
+func MergeResponseHeaders(hdr http.Header, path string, rules []EdgeRule) {
+	for k, v := range netlifycompat.MatchHeaders(path, rules) {
+		hdr.Set(k, v)
+	}
 }

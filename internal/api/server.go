@@ -92,6 +92,9 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("GET /v1/routes", s.auth(s.handleRoutes))
 	s.mux.HandleFunc("PUT /v1/routes", s.auth(s.handlePutRoutes))
 	s.mux.HandleFunc("DELETE /v1/routes", s.auth(s.handleClearRoutes))
+	s.mux.HandleFunc("GET /v1/edge-rules", s.auth(s.handleEdgeRules))
+	s.mux.HandleFunc("PUT /v1/edge-rules", s.auth(s.handlePutEdgeRules))
+	s.mux.HandleFunc("DELETE /v1/edge-rules", s.auth(s.handleClearEdgeRules))
 	s.mux.HandleFunc("GET /v1/secrets", s.auth(s.handleSecretList))
 	s.mux.HandleFunc("PUT /v1/secrets/{name}", s.auth(s.handleSecretPut))
 	s.mux.HandleFunc("GET /v1/secrets/{name}", s.auth(s.handleSecretGet))
@@ -593,6 +596,12 @@ func (s *Server) handleClearRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEdge(w http.ResponseWriter, r *http.Request) bool {
+	rules, _ := s.loadEdgeRules()
+	origPath := r.URL.Path
+	proxy.MergeResponseHeaders(w.Header(), origPath, rules)
+	if handled, _ := proxy.ApplyEdgeRules(w, r, rules); handled {
+		return true
+	}
 	routes, err := s.edgeRoutes(r.Context())
 	if err != nil || len(routes) == 0 {
 		return false
@@ -601,7 +610,7 @@ func (s *Server) handleEdge(w http.ResponseWriter, r *http.Request) bool {
 	if !ok || route.Endpoint == "" {
 		return false
 	}
-	proxy.Handler(route).ServeHTTP(w, r)
+	proxy.Handler(route).ServeHTTP(&headerInjectWriter{ResponseWriter: w, path: origPath, rules: rules}, r)
 	return true
 }
 
@@ -781,4 +790,28 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
+}
+
+
+// headerInjectWriter adds edge header rules when the backend response is written.
+type headerInjectWriter struct {
+	http.ResponseWriter
+	path     string
+	rules    []proxy.EdgeRule
+	wroteHdr bool
+}
+
+func (h *headerInjectWriter) WriteHeader(code int) {
+	if !h.wroteHdr {
+		proxy.MergeResponseHeaders(h.ResponseWriter.Header(), h.path, h.rules)
+		h.wroteHdr = true
+	}
+	h.ResponseWriter.WriteHeader(code)
+}
+
+func (h *headerInjectWriter) Write(b []byte) (int, error) {
+	if !h.wroteHdr {
+		h.WriteHeader(http.StatusOK)
+	}
+	return h.ResponseWriter.Write(b)
 }

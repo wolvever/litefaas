@@ -111,6 +111,35 @@ func (c *Client) ClearRoutes() error {
 	return c.do(http.MethodDelete, "/v1/routes", nil, nil)
 }
 
+func (c *Client) EdgeRules() ([]proxy.EdgeRule, error) {
+	var out []proxy.EdgeRule
+	if err := c.do(http.MethodGet, "/v1/edge-rules", nil, &out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []proxy.EdgeRule{}
+	}
+	return out, nil
+}
+
+func (c *Client) PutEdgeRules(rules []proxy.EdgeRule) ([]proxy.EdgeRule, error) {
+	if rules == nil {
+		rules = []proxy.EdgeRule{}
+	}
+	var out []proxy.EdgeRule
+	if err := c.do(http.MethodPut, "/v1/edge-rules", rules, &out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []proxy.EdgeRule{}
+	}
+	return out, nil
+}
+
+func (c *Client) ClearEdgeRules() error {
+	return c.do(http.MethodDelete, "/v1/edge-rules", nil, nil)
+}
+
 type SecretRef struct {
 	Name string `json:"name"`
 }
