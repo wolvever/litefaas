@@ -25,6 +25,7 @@ Global frontend DX: CDN edge, git-OAuth previews, team billing, managed platform
 - Detect / plan before build (`lf detect`, `lf build --plan`)
 - Deploy summary with edge URLs (no secret values)
 - Install UX (`install.sh` + release binaries) and `make demo`
+- Local rebuild loop (`lf watch`) — debounce → Docker build → API deploy cutover (Netlify Dev-feel; **not** framework HMR inside the container, and **not** `netlify watch` waiting on remote CDN deploys)
 
 ## Explicit non-goals (core)
 
@@ -35,7 +36,8 @@ Matching [GOAL #42](https://github.com/wolvever/litefaas/issues/42) and the RFC:
 - Managed Postgres/Redis **inside** the core (hints and sidecars are docs only)
 - ACME / auto-cert **inside** litefaasd (put **Caddy** / Traefik / nginx in front)
 - Kubernetes control plane
-- `lf watch` (P1)
+- Framework HMR / live-reload inside the running container
+- `netlify watch`-style waiting on remote git/CDN deploys
 
 Put TLS in front:
 
