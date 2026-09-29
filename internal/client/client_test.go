@@ -71,6 +71,7 @@ func TestClientCRUDDeploy(t *testing.T) {
 	if _, err := c.Create(types.Resource{Name: "hello", Kind: types.KindFunction, Runtime: types.RuntimeGo, Image: "hello:latest"}); err != nil {
 		t.Fatal(err)
 	}
+	fake.Endpoints["hello"] = "http://127.0.0.1:9"
 	fake.LogsText["hello"] = "log-line\n"
 	var buf bytes.Buffer
 	if err := c.Logs(context.Background(), "hello", false, 10, &buf); err != nil {

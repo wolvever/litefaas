@@ -631,6 +631,14 @@ func (s *Server) handleLogs(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
 		return
 	}
+	// Fail closed before streaming when the container is missing.
+	if _, err := s.runner.Endpoint(r.Context(), name); errors.Is(err, runner.ErrNotDeployed) {
+		writeJSON(w, http.StatusConflict, errorBody{Error: "not deployed"})
+		return
+	} else if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+		return
+	}
 	opts := runner.LogsOptions{
 		Follow: queryBool(r, "follow"),
 		Tail:   queryInt(r, "tail", 100),
