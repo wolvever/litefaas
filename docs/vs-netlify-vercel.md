@@ -23,7 +23,7 @@ Global frontend DX: CDN edge, git-OAuth previews, team billing, managed platform
 
 - Local `lf up` (bring the control plane up in one terminal)
 - Detect / plan before build (`lf detect`, `lf build --plan`)
-- Preflight before up/deploy (`lf check`, `lf up --check`) — optional pack `host.build`, image build, one-shot container smoke (tear down); fails closed before litefaasd
+- Preflight before up/deploy (`lf check`, `lf up --check`) — optional pack `host.build`, image build, one-shot container smoke (tear down); fails closed before litefaasd. Host recipes are **pack-declared** data; use `lf check --skip-host` when the toolchain is not installed locally.
 - Deploy summary with edge URLs (no secret values)
 - Install UX (`install.sh` + release binaries) and `make demo`
 - Local rebuild loop (`lf watch`) — debounce → Docker build → API deploy cutover (Netlify Dev-feel; **not** framework HMR inside the container, and **not** `netlify watch` waiting on remote CDN deploys)

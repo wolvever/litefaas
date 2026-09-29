@@ -21,3 +21,6 @@ hints:
     SPRING_DATASOURCE_URL: jdbc:postgresql://localhost:5432/app
     SPRING_DATASOURCE_USERNAME: app
     SPRING_DATASOURCE_PASSWORD: app
+
+verify:
+  health: /healthz

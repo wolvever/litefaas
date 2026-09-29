@@ -34,3 +34,9 @@ hints:
     REDIS_URL: redis://localhost:6379/0
     FLASK_APP: app:app
     GUNICORN_APP: app:app
+
+host:
+  build: ["python", "-m", "compileall", "."]
+
+verify:
+  health: /healthz
