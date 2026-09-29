@@ -50,6 +50,14 @@ func (c *Client) List() ([]types.Resource, error) {
 	return out, nil
 }
 
+func (c *Client) Get(name string) (types.Resource, error) {
+	var out types.Resource
+	if err := c.do(http.MethodGet, "/v1/functions/"+url.PathEscape(name), nil, &out); err != nil {
+		return types.Resource{}, err
+	}
+	return out, nil
+}
+
 func (c *Client) Create(r types.Resource) (types.Resource, error) {
 	var out types.Resource
 	if err := c.do(http.MethodPost, "/v1/functions", r, &out); err != nil {
@@ -337,3 +345,4 @@ func (c *Client) do(method, path string, body any, dest any) error {
 	}
 	return json.Unmarshal(raw, dest)
 }
+
