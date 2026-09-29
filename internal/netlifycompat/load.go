@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 )
 
-// LoadProject reads root _redirects and/or netlify.toml when present.
-// Order: _redirects first, then netlify.toml (later From keys can override at merge time).
+// LoadProject reads root _redirects, netlify.toml, and/or vercel.json when present.
+// Order: _redirects, then netlify.toml, then vercel.json (later From keys can override at merge time).
 func LoadProject(dir string) ([]EdgeRule, error) {
 	if dir == "" {
 		dir = "."
@@ -28,6 +28,16 @@ func LoadProject(dir string) ([]EdgeRule, error) {
 		rules, err := ParseNetlifyTOML(string(raw))
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", nt, err)
+		}
+		out = append(out, rules...)
+	} else if !os.IsNotExist(err) {
+		return nil, err
+	}
+	vj := filepath.Join(dir, "vercel.json")
+	if raw, err := os.ReadFile(vj); err == nil {
+		rules, err := ParseVercelJSON(string(raw))
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", vj, err)
 		}
 		out = append(out, rules...)
 	} else if !os.IsNotExist(err) {

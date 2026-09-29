@@ -6,9 +6,10 @@ import (
 
 // MatchResult is the outcome of matching a request path against an EdgeRule.
 type MatchResult struct {
-	Rule  EdgeRule
-	Splat string
-	// Dest is To with :splat substituted (redirect/rewrite only).
+	Rule   EdgeRule
+	Splat  string
+	Params map[string]string
+	// Dest is To with :splat / :param substituted (redirect/rewrite only).
 	Dest string
 }
 
@@ -21,15 +22,16 @@ func MatchPath(path string, rules []EdgeRule) (MatchResult, bool) {
 		if r.Status == 0 {
 			continue
 		}
-		ok, splat, n := matchFrom(path, r.From)
+		ok, splat, params, n := matchFrom(path, r.From)
 		if !ok {
 			continue
 		}
 		if n > bestLen {
 			best = MatchResult{
-				Rule:  r,
-				Splat: splat,
-				Dest:  NormalizeSplat(r.To, splat),
+				Rule:   r,
+				Splat:  splat,
+				Params: params,
+				Dest:   ExpandDest(r.To, splat, params),
 			}
 			bestLen = n
 		}
@@ -47,7 +49,7 @@ func MatchHeaders(path string, rules []EdgeRule) map[string]string {
 		if r.Status != 0 || len(r.Headers) == 0 {
 			continue
 		}
-		ok, _, _ := matchFrom(path, r.From)
+		ok, _, _, _ := matchFrom(path, r.From)
 		if !ok {
 			continue
 		}
@@ -61,43 +63,80 @@ func MatchHeaders(path string, rules []EdgeRule) map[string]string {
 	return out
 }
 
-// matchFrom supports exact paths and a single trailing /* splat (Netlify-style).
-// Returns matched, splat value, and specificity score (length of literal prefix).
-func matchFrom(path, from string) (bool, string, int) {
+// ExpandDest substitutes :splat and :param placeholders in a destination.
+func ExpandDest(to, splat string, params map[string]string) string {
+	out := NormalizeSplat(to, splat)
+	for k, v := range params {
+		out = strings.ReplaceAll(out, ":"+k, v)
+	}
+	return out
+}
+
+// matchFrom supports exact paths, trailing /* splat, and single-segment :param placeholders.
+// Returns matched, splat value, named params, and specificity (literal rune count).
+func matchFrom(path, from string) (bool, string, map[string]string, int) {
 	if from == "" {
-		return false, "", 0
+		return false, "", nil, 0
 	}
 	if strings.HasSuffix(from, "/*") {
 		prefix := strings.TrimSuffix(from, "/*")
-		if prefix == "" {
-			prefix = ""
-		}
 		if path == prefix || path == prefix+"/" {
-			return true, "", len(prefix)
+			return true, "", nil, len(prefix)
 		}
 		if prefix == "" {
 			if strings.HasPrefix(path, "/") {
-				return true, strings.TrimPrefix(path, "/"), 1
+				return true, strings.TrimPrefix(path, "/"), nil, 1
 			}
-			return false, "", 0
+			return false, "", nil, 0
 		}
 		if strings.HasPrefix(path, prefix+"/") {
-			return true, strings.TrimPrefix(path, prefix+"/"), len(prefix)
+			return true, strings.TrimPrefix(path, prefix+"/"), nil, len(prefix)
 		}
-		return false, "", 0
+		return false, "", nil, 0
 	}
-	if from == "/*" {
-		if strings.HasPrefix(path, "/") {
-			return true, strings.TrimPrefix(path, "/"), 1
-		}
-		return false, "", 0
+	if strings.Contains(from, "/:") || strings.HasPrefix(from, ":") {
+		return matchParams(path, from)
 	}
 	p := strings.TrimRight(from, "/")
 	if p == "" {
 		p = "/"
 	}
 	if path == from || path == p || path == p+"/" {
-		return true, "", len(p)
+		return true, "", nil, len(p)
 	}
-	return false, "", 0
+	return false, "", nil, 0
+}
+
+func matchParams(path, from string) (bool, string, map[string]string, int) {
+	fromParts := splitPath(from)
+	pathParts := splitPath(path)
+	if len(fromParts) != len(pathParts) {
+		return false, "", nil, 0
+	}
+	params := map[string]string{}
+	score := 0
+	for i := range fromParts {
+		fp, pp := fromParts[i], pathParts[i]
+		if strings.HasPrefix(fp, ":") {
+			name := strings.TrimPrefix(fp, ":")
+			if name == "" || strings.Contains(name, "*") {
+				return false, "", nil, 0
+			}
+			params[name] = pp
+			continue
+		}
+		if fp != pp {
+			return false, "", nil, 0
+		}
+		score += len(fp)
+	}
+	return true, "", params, score
+}
+
+func splitPath(p string) []string {
+	p = strings.Trim(p, "/")
+	if p == "" {
+		return nil
+	}
+	return strings.Split(p, "/")
 }
