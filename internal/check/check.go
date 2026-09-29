@@ -168,7 +168,7 @@ func lookupPack(dir string, m *manifest.Manifest, stackID string) (*stackpack.Pa
 	p, err := cat.Detect(dir)
 	if err != nil {
 		// No pack match is fine for check; host simply skipped.
-		if strings.Contains(err.Error(), "no matching") || strings.Contains(err.Error(), "no stack") {
+		if strings.Contains(err.Error(), "no stack pack matched") {
 			return nil, nil
 		}
 		return nil, err
@@ -282,23 +282,25 @@ func packHostBuild(p *stackpack.Pack) []string {
 }
 
 func resolveHealth(m *manifest.Manifest, p *stackpack.Pack) string {
-	if p != nil {
-		if h := strings.TrimSpace(p.Verify.Health); h != "" {
-			if !strings.HasPrefix(h, "/") {
-				h = "/" + h
-			}
-			return h
-		}
-	}
+	// Prefer per-service manifest health, then pack verify.health, then default.
 	if m != nil {
 		if h := strings.TrimSpace(m.Health); h != "" {
-			if !strings.HasPrefix(h, "/") {
-				h = "/" + h
-			}
-			return h
+			return ensureSlash(h)
+		}
+	}
+	if p != nil {
+		if h := strings.TrimSpace(p.Verify.Health); h != "" {
+			return ensureSlash(h)
 		}
 	}
 	return "/healthz"
+}
+
+func ensureSlash(h string) string {
+	if !strings.HasPrefix(h, "/") {
+		return "/" + h
+	}
+	return h
 }
 
 func manifestPort(m *manifest.Manifest) int {

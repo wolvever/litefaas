@@ -14,19 +14,24 @@ import (
 	"time"
 
 	"github.com/wolvever/litefaas/internal/dockercli"
+	"github.com/wolvever/litefaas/internal/manifest"
 	"github.com/wolvever/litefaas/internal/scaffold"
 	"github.com/wolvever/litefaas/internal/stackpack"
 	"github.com/wolvever/litefaas/internal/types"
 )
 
 func TestResolveHealth(t *testing.T) {
-	p := &stackpack.Pack{Verify: stackpack.Verify{Health: "ready"}}
-	if got := resolveHealth(nil, p); got != "/ready" {
+	pack := &stackpack.Pack{Verify: stackpack.Verify{Health: "ready"}}
+	if got := resolveHealth(nil, pack); got != "/ready" {
 		t.Fatalf("pack verify: %q", got)
 	}
-	// pack wins over manifest
-	mHealth := "/healthz"
-	_ = mHealth
+	m := &manifest.Manifest{Health: "/custom"}
+	if got := resolveHealth(m, pack); got != "/custom" {
+		t.Fatalf("manifest should win over pack: %q", got)
+	}
+	if got := resolveHealth(nil, nil); got != "/healthz" {
+		t.Fatalf("default: %q", got)
+	}
 }
 
 func TestSanitizeName(t *testing.T) {
