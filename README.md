@@ -32,7 +32,7 @@ Docker is required for `lf build` / `lf check` (smoke) / `lf deploy` / the live 
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/wolvever/litefaas/main/scripts/install.sh | sh
-# pin: LITEFAAS_VERSION=v0.1.0-alpha sh install.sh
+# pin: LITEFAAS_VERSION=v0.1.1 sh install.sh
 ```
 
 Installs `lf` + `litefaasd` into `/usr/local/bin` (or `~/.local/bin`). Checksums are verified when `checksums.txt` is present. Judge/maintainers build assets with `scripts/release-binaries.sh` and `gh release upload`.
