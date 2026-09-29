@@ -324,6 +324,11 @@ env:
 
 API: `PUT/GET/DELETE /v1/secrets/{name}`, `GET /v1/secrets` (names only).
 
+### Redirects / headers
+
+If the project root has `_redirects` and/or a thin `netlify.toml` (`[[redirects]]` / `[[headers]]` only), `lf deploy` uploads them as gateway **edge rules** (301/302/… redirects, 200 rewrites, response headers). Plugins/functions/build are ignored. `lf detect` mentions the counts; `lf routes` lists them.
+
+
 ## TLS / HTTPS
 
 litefaasd speaks **HTTP** on `--addr` by default (demos use `127.0.0.1:8080`). Optional edge TLS:

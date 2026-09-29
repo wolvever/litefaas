@@ -81,6 +81,11 @@ CREATE TABLE IF NOT EXISTS routes (
 	spec_json TEXT NOT NULL,
 	updated_at TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS edge_rules (
+	id INTEGER PRIMARY KEY CHECK (id = 1),
+	spec_json TEXT NOT NULL,
+	updated_at TEXT NOT NULL
+);
 `)
 	return err
 }
@@ -290,4 +295,55 @@ func isUnique(err error) bool {
 	}
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "unique") || strings.Contains(msg, "constraint")
+}
+
+// EdgeRuleSpec is a persisted gateway redirect/rewrite/header rule.
+type EdgeRuleSpec struct {
+	From    string            `json:"from"`
+	To      string            `json:"to,omitempty"`
+	Status  int               `json:"status,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"`
+	Force   bool              `json:"force,omitempty"`
+	Source  string            `json:"source,omitempty"`
+}
+
+func (s *Store) GetEdgeRules() ([]EdgeRuleSpec, bool, error) {
+	var raw string
+	err := s.db.QueryRow(`SELECT spec_json FROM edge_rules WHERE id = 1`).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, false, nil
+	}
+	if err != nil {
+		return nil, false, err
+	}
+	var out []EdgeRuleSpec
+	if err := json.Unmarshal([]byte(raw), &out); err != nil {
+		return nil, false, err
+	}
+	if out == nil {
+		out = []EdgeRuleSpec{}
+	}
+	return out, true, nil
+}
+
+func (s *Store) SetEdgeRules(rules []EdgeRuleSpec) error {
+	if rules == nil {
+		rules = []EdgeRuleSpec{}
+	}
+	raw, err := json.Marshal(rules)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Truncate(time.Second).Format(time.RFC3339)
+	_, err = s.db.Exec(
+		`INSERT INTO edge_rules (id, spec_json, updated_at) VALUES (1, ?, ?)
+		 ON CONFLICT(id) DO UPDATE SET spec_json = excluded.spec_json, updated_at = excluded.updated_at`,
+		string(raw), now,
+	)
+	return err
+}
+
+func (s *Store) ClearEdgeRules() error {
+	_, err := s.db.Exec(`DELETE FROM edge_rules WHERE id = 1`)
+	return err
 }

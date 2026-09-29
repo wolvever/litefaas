@@ -20,7 +20,7 @@ func cmdRoutes(args []string) error {
 			args = args[1:]
 		case "help", "-h", "--help":
 			fmt.Print(`lf routes commands:
-  lf routes                 List the edge route table
+  lf routes                 List the edge route table (+ edge rules)
   lf routes set <file.json> Replace the route table (PUT /v1/routes)
   lf routes clear           Drop the override; derive routes from manifests
 `)
@@ -41,7 +41,33 @@ func cmdRoutes(args []string) error {
 	for _, r := range list {
 		fmt.Fprintf(tw, "%s\t%s\t%t\t%t\t%s\n", r.Path, r.Name, r.StripPrefix, r.SPA, r.Endpoint)
 	}
-	return tw.Flush()
+	if err := tw.Flush(); err != nil {
+		return err
+	}
+	rules, err := c.EdgeRules()
+	if err != nil {
+		return err
+	}
+	if len(rules) == 0 {
+		return nil
+	}
+	fmt.Println()
+	tw2 := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
+	fmt.Fprintln(tw2, "EDGE\tFROM\tTO\tSTATUS\tSOURCE")
+	for _, r := range rules {
+		kind := "redirect"
+		if r.Status == 0 {
+			kind = "headers"
+		} else if r.Status == 200 {
+			kind = "rewrite"
+		}
+		to := r.To
+		if r.Status == 0 {
+			to = fmt.Sprintf("%d headers", len(r.Headers))
+		}
+		fmt.Fprintf(tw2, "%s\t%s\t%s\t%d\t%s\n", kind, r.From, to, r.Status, r.Source)
+	}
+	return tw2.Flush()
 }
 
 func cmdRoutesSet(args []string) error {

@@ -117,3 +117,28 @@ func TestRouteOverridePersists(t *testing.T) {
 		t.Fatalf("cleared ok=%v err=%v", ok, err)
 	}
 }
+
+func TestEdgeRulesPersist(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if _, ok, err := s.GetEdgeRules(); err != nil || ok {
+		t.Fatalf("empty ok=%v err=%v", ok, err)
+	}
+	want := []EdgeRuleSpec{{From: "/old", To: "/new", Status: 301, Source: "_redirects"}}
+	if err := s.SetEdgeRules(want); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := s.GetEdgeRules()
+	if err != nil || !ok || len(got) != 1 || got[0].From != "/old" {
+		t.Fatalf("got=%+v ok=%v err=%v", got, ok, err)
+	}
+	if err := s.ClearEdgeRules(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok, err := s.GetEdgeRules(); err != nil || ok {
+		t.Fatalf("cleared ok=%v err=%v", ok, err)
+	}
+}

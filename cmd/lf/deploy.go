@@ -8,6 +8,8 @@ import (
 
 	"github.com/wolvever/litefaas/internal/client"
 	"github.com/wolvever/litefaas/internal/manifest"
+	"github.com/wolvever/litefaas/internal/netlifycompat"
+	"github.com/wolvever/litefaas/internal/proxy"
 	"github.com/wolvever/litefaas/internal/types"
 )
 
@@ -43,7 +45,7 @@ func cmdDeploy(args []string) error {
 			n++
 		}
 		fmt.Printf("deployed %d services → gateway %s\n", n, c.Gateway)
-		return nil
+		return applyProjectEdgeRules(c, dir)
 	}
 	if res.Detected && res.Pack != nil {
 		fmt.Printf("detected stack=%s\n", res.Pack.ID)
@@ -51,7 +53,10 @@ func cmdDeploy(args []string) error {
 			fmt.Printf("stack hints (not started by litefaas): %s\n", h)
 		}
 	}
-	return deployResource(c, res.Manifest.Resource())
+	if err := deployResource(c, res.Manifest.Resource()); err != nil {
+		return err
+	}
+	return applyProjectEdgeRules(c, dir)
 }
 
 func deployResource(c *client.Client, res types.Resource) error {
@@ -71,5 +76,33 @@ func deployResource(c *client.Client, res types.Resource) error {
 		return err
 	}
 	formatDeploySummary(os.Stdout, c.Gateway, res, dep)
+	return nil
+}
+
+
+func applyProjectEdgeRules(c *client.Client, dir string) error {
+	rules, err := netlifycompat.LoadProject(dir)
+	if err != nil {
+		return err
+	}
+	if len(rules) == 0 {
+		return nil
+	}
+	rules = netlifycompat.MergeByFrom(rules)
+	out := make([]proxy.EdgeRule, len(rules))
+	copy(out, rules)
+	got, err := c.PutEdgeRules(out)
+	if err != nil {
+		return fmt.Errorf("edge rules: %w", err)
+	}
+	nRedir, nHdr := 0, 0
+	for _, r := range got {
+		if r.Status == 0 {
+			nHdr++
+		} else {
+			nRedir++
+		}
+	}
+	fmt.Printf("edge rules: %d redirect/rewrite, %d header (from _redirects / netlify.toml)\n", nRedir, nHdr)
 	return nil
 }
