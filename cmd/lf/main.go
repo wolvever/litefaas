@@ -65,6 +65,8 @@ func run(args []string) error {
 		return cmdSecret(args[1:])
 	case "stacks", "stack":
 		return cmdStacks(args[1:])
+	case "check":
+		return cmdCheck(args[1:])
 	case "watch":
 		return cmdWatch(args[1:])
 	default:
@@ -77,7 +79,7 @@ func printUsage(w io.Writer) {
 
 Usage:
   lf version                 Print CLI version
-  lf up [flags]               Start or reuse local litefaasd; set default context
+  lf up [flags]               Start or reuse local litefaasd; set default context (--check runs preflight first)
   lf health                  GET /healthz on the current gateway
   lf init <name> --runtime go|java|python|node|dockerfile|static [--preset ...] [--kind function|backend|frontend]
   lf detect [path] [--stack ID] [--json]  Print stack/pack plan without building
@@ -94,6 +96,7 @@ Usage:
   lf token                   Print the resolved bearer token
   lf secret set|get|list|delete  Manage encrypt-at-rest secrets (${secret:name} in env)
   lf stacks [--json]          List embedded stack packs (and LITEFAAS_STACKS_DIR overlays)
+  lf check [path] [--stack ID] [--skip-host] [--skip-smoke] [--json]  Host → image → smoke preflight
   lf watch [path] [--stack ID] [--debounce 500ms]  Watch → build → deploy (Docker cutover)
   lf context                 Show / list / create / use CLI contexts
   lf help                    Show this help

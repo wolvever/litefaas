@@ -26,7 +26,7 @@ Poor man's serverless: a minimal **CLI + API** control plane to build and deploy
 
 ## Install
 
-Docker is required for `lf build` / `lf deploy` / the live invoke path. Go 1.22+ is needed only when building from source.
+Docker is required for `lf build` / `lf check` (smoke) / `lf deploy` / the live invoke path. Go 1.22+ is needed only when building from source.
 
 **1. Release binaries (`install.sh`)** — when assets are attached to a GitHub Release:
 
@@ -76,6 +76,7 @@ Or manually — one terminal with `lf up`:
 ./lf up --no-auth --data-dir ./data   # starts or reuses litefaasd; writes default context
 ./lf init hello --runtime go
 cd hello
+../lf check .                         # optional: host → image → one-shot smoke (fail before up/deploy)
 ../lf build
 ../lf detect .                        # optional: printable pack/runtime plan
 ../lf deploy                          # prints deploy summary (edge URLs; secret refs only)
@@ -111,7 +112,7 @@ What each step does:
 | `lf invoke` | API | `POST /v1/invoke/{name}` reverse-proxies to the container (wakes a stopped function) |
 | `lf logs` | API + Docker | `GET /v1/functions/{name}/logs` tails `docker logs` |
 
-Prefer `lf watch .` after the first deploy — it debounces file changes, runs `lf build` → `lf deploy`, and prints the same deploy summary (Docker image cutover, **not** framework HMR; see [vs Netlify / Vercel](docs/vs-netlify-vercel.md)). Or re-run `lf build && lf deploy` manually. `lf delete hello` removes the resource and stops the container.
+Prefer `lf check .` before the first `lf up` / deploy to prove host recipes + image boot (pack `host.build` → `docker build` → one-shot health smoke). Prefer `lf watch .` after the first deploy — it debounces file changes, runs `lf build` → `lf deploy`, and prints the same deploy summary (Docker image cutover, **not** framework HMR; see [vs Netlify / Vercel](docs/vs-netlify-vercel.md)). Or re-run `lf build && lf deploy` manually. `lf delete hello` removes the resource and stops the container. `lf up --check` runs the same preflight on `.` and fails closed before starting/reusing litefaasd.
 
 ## Java and Python (Phase 3)
 
@@ -459,7 +460,7 @@ See GitHub milestone [v0.1.0-alpha](https://github.com/wolvever/litefaas/milesto
 
 ## Non-goals (core)
 
-No CDN, no team UI/billing, no managed DBs in core, no ACME-in-daemon, no Kubernetes control plane, no pack-store SaaS. Packs stay data; litefaasd stays dumb. `lf watch` is CLI-only (local Docker rebuild loop — not Netlify remote watch / not in-container HMR).
+No CDN, no team UI/billing, no managed DBs in core, no ACME-in-daemon, no Kubernetes control plane, no pack-store SaaS. Packs stay data; litefaasd stays dumb. `lf check` / `lf watch` are CLI-only (`lf check` = host→image→smoke preflight; `lf watch` = local Docker rebuild loop — not Netlify remote watch / not in-container HMR).
 
 ## License
 

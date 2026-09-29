@@ -238,6 +238,12 @@ func (d *Docker) endpointOf(ctx context.Context, cname string) (string, error) {
 }
 
 func (d *Docker) waitHealthy(ctx context.Context, endpoint, health string) error {
+	return WaitHTTP(ctx, d.HTTP, endpoint, health)
+}
+
+// WaitHTTP polls GET endpoint+health until 2xx or ~30s timeout.
+// Shared by deploy cutover and lf check smoke.
+func WaitHTTP(ctx context.Context, client *http.Client, endpoint, health string) error {
 	if health == "" {
 		health = "/healthz"
 	}
@@ -245,7 +251,6 @@ func (d *Docker) waitHealthy(ctx context.Context, endpoint, health string) error
 		health = "/" + health
 	}
 	url := strings.TrimRight(endpoint, "/") + health
-	client := d.HTTP
 	if client == nil {
 		client = http.DefaultClient
 	}

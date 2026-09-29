@@ -29,9 +29,21 @@ type Pack struct {
 	Description string    `yaml:"description,omitempty"`
 	Match       []RuleSet `yaml:"match"`
 	Hints       Hints     `yaml:"hints,omitempty"`
+	Host        Host      `yaml:"host,omitempty"`
+	Verify      Verify    `yaml:"verify,omitempty"`
 
 	Dockerfile   []byte `yaml:"-"`
 	Dockerignore []byte `yaml:"-"`
+}
+
+// Host holds optional host-side preflight recipes (argv lists; cwd = service root).
+type Host struct {
+	Build []string `yaml:"build,omitempty"`
+}
+
+// Verify holds optional smoke/health defaults for lf check.
+type Verify struct {
+	Health string `yaml:"health,omitempty"`
 }
 
 // RuleSet is an AND-group. A pack matches if any RuleSet fully matches.
