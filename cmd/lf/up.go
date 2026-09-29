@@ -39,6 +39,7 @@ type upOptions struct {
 	Timeout    time.Duration
 	TLSCert    string
 	TLSKey     string
+	Check      bool
 }
 
 type probeResult int
@@ -160,6 +161,7 @@ func cmdUp(args []string) error {
 	fs.DurationVar(&opts.Timeout, "timeout", defaultUpTimeout, "wait for GET /healthz")
 	fs.StringVar(&opts.TLSCert, "tls-cert", "", "TLS certificate (requires --tls-key)")
 	fs.StringVar(&opts.TLSKey, "tls-key", "", "TLS private key (requires --tls-cert)")
+	fs.BoolVar(&opts.Check, "check", false, "run lf check on . before starting/reusing litefaasd")
 	_, err := parseMixed(fs, args)
 	if err != nil {
 		return err
@@ -175,6 +177,11 @@ func cmdUp(args []string) error {
 }
 
 func runUp(opts upOptions, stdout, stderr io.Writer) error {
+	if opts.Check {
+		if err := runPreflightCheck(".", stdout, stderr); err != nil {
+			return fmt.Errorf("preflight check failed (litefaasd not started/reused): %w", err)
+		}
+	}
 	if opts.DataDir == "" {
 		opts.DataDir = config.DefaultDataDir()
 	}

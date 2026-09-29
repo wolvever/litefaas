@@ -28,6 +28,14 @@ func Build(ctx context.Context, dir string, stdout, stderr io.Writer) (Result, e
 	return BuildWith(ctx, dir, "", stdout, stderr)
 }
 
+// BuildResolved builds a single already-resolved service (used by lf check multi-service).
+func BuildResolved(ctx context.Context, res *manifest.Resolution, stdout, stderr io.Writer) (Result, error) {
+	if res != nil && res.Multi != nil {
+		return Result{}, fmt.Errorf("BuildResolved expects a single service")
+	}
+	return buildOne(ctx, res, stdout, stderr)
+}
+
 func BuildWith(ctx context.Context, dir, stackID string, stdout, stderr io.Writer) (Result, error) {
 	res, err := manifest.ResolveDetect(dir, stackID)
 	if err != nil {
