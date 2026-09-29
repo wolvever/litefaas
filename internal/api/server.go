@@ -596,6 +596,9 @@ func (s *Server) handleClearRoutes(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleEdge(w http.ResponseWriter, r *http.Request) bool {
+	if name, ok := proxy.ParseDraftPath(r.URL.Path); ok {
+		return s.handleDraftEdge(w, r, name)
+	}
 	rules, _ := s.loadEdgeRules()
 	origPath := r.URL.Path
 	proxy.MergeResponseHeaders(w.Header(), origPath, rules)
@@ -611,6 +614,34 @@ func (s *Server) handleEdge(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 	proxy.Handler(route).ServeHTTP(&headerInjectWriter{ResponseWriter: w, path: origPath, rules: rules}, r)
+	return true
+}
+
+// handleDraftEdge serves /--draft/<name>/… by stripping the draft prefix onto the resource endpoint.
+func (s *Server) handleDraftEdge(w http.ResponseWriter, r *http.Request, name string) bool {
+	if s.store == nil {
+		return false
+	}
+	res, err := s.store.Get(name)
+	if errors.Is(err, store.ErrNotFound) {
+		http.NotFound(w, r)
+		return true
+	} else if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+		return true
+	}
+	ep, err := s.ensureEndpoint(r.Context(), res)
+	if err != nil {
+		writeJSON(w, http.StatusBadGateway, errorBody{Error: err.Error()})
+		return true
+	}
+	route := proxy.Route{
+		Path:        proxy.DraftPrefix(name),
+		Name:        name,
+		Endpoint:    ep,
+		StripPrefix: true,
+	}
+	proxy.Handler(route).ServeHTTP(w, r)
 	return true
 }
 

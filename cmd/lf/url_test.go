@@ -1,6 +1,7 @@
 package main
 
 import (
+	"github.com/wolvever/litefaas/internal/proxy"
 	"strings"
 	"testing"
 
@@ -55,5 +56,12 @@ func TestEdgeHTTPURLsSkipsNonHTTP(t *testing.T) {
 	urls := edgeHTTPURLs("http://gw", res)
 	if len(urls) != 1 || urls[0] != "http://gw/api" {
 		t.Fatalf("%v", urls)
+	}
+}
+
+func TestDraftURLKind(t *testing.T) {
+	u := proxy.DraftURL("http://gw", "svc")
+	if u != "http://gw/--draft/svc/" {
+		t.Fatalf("%s", u)
 	}
 }
