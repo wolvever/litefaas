@@ -22,7 +22,7 @@ func TestRoundTrip(t *testing.T) {
 		t.Fatalf("got %q err=%v", got, err)
 	}
 	// ciphertext must not contain plaintext
-	raw, err := os.ReadFile(filepath.Join(dir, DirName, "db.enc"))
+	raw, err := os.ReadFile(filepath.Join(dir, DirName, DefaultEnv, "db.enc"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestCorruptCiphertext(t *testing.T) {
 	if err := s.Set("x", "ok"); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(dir, DirName, "x.enc")
+	path := filepath.Join(dir, DirName, DefaultEnv, "x.enc")
 	if err := os.WriteFile(path, []byte("not-valid-gcm"), 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -165,5 +165,78 @@ func TestListRefs(t *testing.T) {
 	}
 	if _, ok := got["PLAIN"]; ok {
 		t.Fatal("plaintext should be omitted")
+	}
+}
+
+
+func TestEnvBagsIsolated(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEnv("dev", "DB", "dev-val"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEnv("prod", "DB", "prod-val"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetEnv("dev", "DB")
+	if err != nil || got != "dev-val" {
+		t.Fatalf("dev=%q err=%v", got, err)
+	}
+	got, err = s.GetEnv("prod", "DB")
+	if err != nil || got != "prod-val" {
+		t.Fatalf("prod=%q err=%v", got, err)
+	}
+	if _, err := s.GetEnv("dev", "missing"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("err=%v", err)
+	}
+	names, err := s.ListEnv("dev")
+	if err != nil || strings.Join(names, ",") != "DB" {
+		t.Fatalf("list=%v err=%v", names, err)
+	}
+}
+
+func TestMigrateFlatSecrets(t *testing.T) {
+	dir := t.TempDir()
+	root := filepath.Join(dir, DirName)
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	// Write a fake flat ciphertext via Open+Set then move up — or create via first Open.
+	s0, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s0.Set("legacy", "v1"); err != nil {
+		t.Fatal(err)
+	}
+	// Simulate pre-env layout: move default/legacy.enc to secrets/legacy.enc
+	src := filepath.Join(root, DefaultEnv, "legacy.enc")
+	dst := filepath.Join(root, "legacy.enc")
+	if err := os.Rename(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	_ = os.Remove(filepath.Join(root, DefaultEnv)) // may fail if not empty; ok
+	s1, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s1.Get("legacy")
+	if err != nil || got != "v1" {
+		t.Fatalf("got %q err=%v", got, err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "legacy.enc")); !os.IsNotExist(err) {
+		t.Fatalf("flat file should be gone: %v", err)
+	}
+}
+
+func TestValidateEnv(t *testing.T) {
+	if err := ValidateEnv("Dev"); err == nil {
+		t.Fatal("uppercase rejected")
+	}
+	if err := ValidateEnv("prod"); err != nil {
+		t.Fatal(err)
 	}
 }

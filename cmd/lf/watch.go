@@ -251,7 +251,7 @@ func runBuildDeploy(ctx context.Context, dir, stackID string, c *client.Client, 
 	if resolved.Multi != nil {
 		n := 0
 		for i := range resolved.Multi.Services {
-			if err := deployResource(c, resolved.Multi.Services[i].Resource()); err != nil {
+			if err := deployResource(c, resolved.Multi.Services[i].Resource(), ""); err != nil {
 				return err
 			}
 			n++
@@ -265,7 +265,7 @@ func runBuildDeploy(ctx context.Context, dir, stackID string, c *client.Client, 
 			fmt.Fprintf(stdout, "stack hints (not started by litefaas): %s\n", h)
 		}
 	}
-	return deployResource(c, resolved.Manifest.Resource())
+	return deployResource(c, resolved.Manifest.Resource(), "")
 }
 
 // shouldWatchNewDir reports whether a Create event path should get watcher.Add.

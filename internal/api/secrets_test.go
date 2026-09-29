@@ -204,3 +204,43 @@ func TestDeployMissingSecret(t *testing.T) {
 		t.Fatalf("deploy should not run, got %d", len(fake.Deploys))
 	}
 }
+
+func TestSecretsEnvBags(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	sec, err := secret.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := New(Options{Store: st, Secrets: sec, Token: "tok", Runner: runner.NewFake()})
+	put := func(env, name, val string) {
+		t.Helper()
+		body := []byte(`{"value":"` + val + `"}`)
+		req := httptest.NewRequest(http.MethodPut, "/v1/secrets/"+name+"?env="+env, bytes.NewReader(body))
+		req.Header.Set("Authorization", "Bearer tok")
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("put %s/%s = %d %s", env, name, rec.Code, rec.Body.String())
+		}
+	}
+	put("dev", "DB", "devdb")
+	put("prod", "DB", "proddb")
+	req := httptest.NewRequest(http.MethodGet, "/v1/secrets/DB?env=dev", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != 200 || !bytes.Contains(rec.Body.Bytes(), []byte(`"devdb"`)) {
+		t.Fatalf("get dev = %d %s", rec.Code, rec.Body.String())
+	}
+	req = httptest.NewRequest(http.MethodGet, "/v1/secrets/DB?env=prod", nil)
+	req.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != 200 || !bytes.Contains(rec.Body.Bytes(), []byte(`"proddb"`)) {
+		t.Fatalf("get prod = %d %s", rec.Code, rec.Body.String())
+	}
+}

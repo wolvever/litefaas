@@ -471,3 +471,6 @@ No CDN, no team UI/billing, no managed DBs in core, no ACME-in-daemon, no Kubern
 ## License
 
 [MIT](LICENSE)
+
+
+Named secret env bags: `lf secret import .env --env prod` then `lf deploy --env prod` resolves `${secret:…}` from that bag (distinct from CLI `lf context`). Values are never printed by list/import.

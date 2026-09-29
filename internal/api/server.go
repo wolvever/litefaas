@@ -349,7 +349,8 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
 		return
 	}
-	deployRes, err := s.withResolvedSecrets(res)
+	secEnv := r.URL.Query().Get("env")
+	deployRes, err := s.withResolvedSecrets(res, secEnv)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
 		return
@@ -724,7 +725,7 @@ func (s *Server) ensureEndpoint(ctx context.Context, res types.Resource) (string
 	if res.Image == "" {
 		return "", runner.ErrNotDeployed
 	}
-	deployRes, err := s.withResolvedSecrets(res)
+	deployRes, err := s.withResolvedSecrets(res, "")
 	if err != nil {
 		return "", err
 	}
@@ -736,8 +737,9 @@ func (s *Server) ensureEndpoint(ctx context.Context, res types.Resource) (string
 	return out.Endpoint, nil
 }
 
-// withResolvedSecrets expands ${secret:name} in env. Stored metadata keeps refs.
-func (s *Server) withResolvedSecrets(res types.Resource) (types.Resource, error) {
+// withResolvedSecrets expands ${secret:name} in env using the named secret env bag.
+// Stored metadata keeps refs. Empty secretEnv selects the default bag.
+func (s *Server) withResolvedSecrets(res types.Resource, secretEnv string) (types.Resource, error) {
 	if len(res.Env) == 0 {
 		return res, nil
 	}
@@ -754,7 +756,11 @@ func (s *Server) withResolvedSecrets(res types.Resource) (types.Resource, error)
 	if s.secrets == nil {
 		return res, fmt.Errorf("secrets store not configured")
 	}
-	resolved, err := secret.ResolveEnv(res.Env, s.secrets.Get)
+	get, err := s.secrets.GetterFor(secretEnv)
+	if err != nil {
+		return res, err
+	}
+	resolved, err := secret.ResolveEnv(res.Env, get)
 	if err != nil {
 		return res, err
 	}
