@@ -350,7 +350,8 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	secEnv := r.URL.Query().Get("env")
-	deployRes, err := s.withResolvedSecrets(res, secEnv)
+	inject := queryTruthy(r.URL.Query().Get("inject_env")) || queryTruthy(r.URL.Query().Get("inject-env"))
+	deployRes, err := s.withResolvedSecrets(res, secEnv, inject)
 	if err != nil {
 		writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
 		return
@@ -725,7 +726,7 @@ func (s *Server) ensureEndpoint(ctx context.Context, res types.Resource) (string
 	if res.Image == "" {
 		return "", runner.ErrNotDeployed
 	}
-	deployRes, err := s.withResolvedSecrets(res, "")
+	deployRes, err := s.withResolvedSecrets(res, "", false)
 	if err != nil {
 		return "", err
 	}
@@ -737,12 +738,10 @@ func (s *Server) ensureEndpoint(ctx context.Context, res types.Resource) (string
 	return out.Endpoint, nil
 }
 
-// withResolvedSecrets expands ${secret:name} in env using the named secret env bag.
-// Stored metadata keeps refs. Empty secretEnv selects the default bag.
-func (s *Server) withResolvedSecrets(res types.Resource, secretEnv string) (types.Resource, error) {
-	if len(res.Env) == 0 {
-		return res, nil
-	}
+// withResolvedSecrets expands ${secret:name} in env using the named secret env bag,
+// and optionally injects the whole bag for missing keys. Stored metadata keeps refs.
+// Empty secretEnv selects the default bag.
+func (s *Server) withResolvedSecrets(res types.Resource, secretEnv string, inject bool) (types.Resource, error) {
 	hasRef := false
 	for _, v := range res.Env {
 		if strings.Contains(v, "${secret:") {
@@ -750,7 +749,7 @@ func (s *Server) withResolvedSecrets(res types.Resource, secretEnv string) (type
 			break
 		}
 	}
-	if !hasRef {
+	if !hasRef && !inject {
 		return res, nil
 	}
 	if s.secrets == nil {
@@ -760,12 +759,39 @@ func (s *Server) withResolvedSecrets(res types.Resource, secretEnv string) (type
 	if err != nil {
 		return res, err
 	}
-	resolved, err := secret.ResolveEnv(res.Env, get)
-	if err != nil {
-		return res, err
+	env := res.Env
+	if hasRef {
+		resolved, err := secret.ResolveEnv(env, get)
+		if err != nil {
+			return res, err
+		}
+		env = resolved
 	}
-	res.Env = resolved
+	if inject {
+		names, err := s.secrets.ListEnv(secretEnv)
+		if err != nil {
+			return res, err
+		}
+		merged, err := secret.MergeBag(env, names, get)
+		if err != nil {
+			return res, err
+		}
+		env = merged
+	}
+	if env == nil {
+		env = map[string]string{}
+	}
+	res.Env = env
 	return res, nil
+}
+
+func queryTruthy(v string) bool {
+	switch strings.ToLower(strings.TrimSpace(v)) {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) touch(name string) {

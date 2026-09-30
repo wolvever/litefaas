@@ -88,7 +88,7 @@ Usage:
   lf init <name> --runtime go|java|python|node|dockerfile|static [--preset ...] [--kind function|backend|frontend]
   lf detect [path] [--stack ID] [--json]  Print stack/pack plan without building
   lf build [path] [--stack ID] [--plan] [--json]  docker build (or --plan dry-run)
-  lf deploy [path] [--stack ID] [--env NAME]  Register + deploy (optional secret env bag)
+  lf deploy [path] [--stack ID] [--env NAME] [--inject-env]  Register + deploy (secret bag; optional inject)
   lf invoke <name> [-d BODY] POST /v1/invoke/{name}
   lf list                    List resources
   lf delete <name> [--prune-volumes]  Delete resource (opt-in volume prune)

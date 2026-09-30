@@ -244,3 +244,52 @@ func TestSecretsEnvBags(t *testing.T) {
 		t.Fatalf("get prod = %d %s", rec.Code, rec.Body.String())
 	}
 }
+
+func TestDeployInjectEnv(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	sec, err := secret.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = sec.SetEnv("prod", "DB", "injected-db")
+	_ = sec.SetEnv("prod", "TOKEN", "injected-tok")
+	fake := runner.NewFake()
+	srv := New(Options{Store: st, Secrets: sec, Token: "tok", Runner: fake})
+
+	res := types.Resource{
+		Name: "api", Kind: types.KindBackend, Runtime: types.RuntimePython,
+		Image: "api:latest", Port: 8080, Memory: 128, Health: "/healthz",
+		Env: map[string]string{"TOKEN": "from-manifest"},
+	}
+	raw, _ := json.Marshal(res)
+	req := httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(raw))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create=%d %s", rec.Code, rec.Body.String())
+	}
+
+	dep := httptest.NewRequest(http.MethodPost, "/v1/functions/api/deploy?env=prod&inject_env=1", bytes.NewReader([]byte(`{}`)))
+	dep.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, dep)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("deploy=%d %s", rec.Code, rec.Body.String())
+	}
+	got := fake.Deploys[0].Env
+	if got["TOKEN"] != "from-manifest" {
+		t.Fatalf("manifest should win: %#v", got)
+	}
+	if got["DB"] != "injected-db" {
+		t.Fatalf("bag inject: %#v", got)
+	}
+	if strings.Contains(rec.Body.String(), "injected-") {
+		t.Fatalf("response leaked secret: %s", rec.Body.String())
+	}
+}
