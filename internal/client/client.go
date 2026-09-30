@@ -152,10 +152,22 @@ type Secret struct {
 }
 
 func secretEnvQuery(env string) string {
-	if env == "" {
+	return deployQuery(env, false)
+}
+
+func deployQuery(env string, inject bool) string {
+	q := url.Values{}
+	if env != "" {
+		q.Set("env", env)
+	}
+	if inject {
+		q.Set("inject_env", "1")
+	}
+	enc := q.Encode()
+	if enc == "" {
 		return ""
 	}
-	return "?env=" + url.QueryEscape(env)
+	return "?" + enc
 }
 
 func (c *Client) SecretList(env string) ([]SecretRef, error) {
@@ -284,12 +296,16 @@ func (c *Client) Deploy(name, image string) (DeployResult, error) {
 }
 
 func (c *Client) DeployEnv(name, image, env string) (DeployResult, error) {
+	return c.DeployEnvInject(name, image, env, false)
+}
+
+func (c *Client) DeployEnvInject(name, image, env string, inject bool) (DeployResult, error) {
 	var out DeployResult
 	body := map[string]string{}
 	if image != "" {
 		body["image"] = image
 	}
-	path := "/v1/functions/" + name + "/deploy" + secretEnvQuery(env)
+	path := "/v1/functions/" + name + "/deploy" + deployQuery(env, inject)
 	if err := c.do(http.MethodPost, path, body, &out); err != nil {
 		return DeployResult{}, err
 	}

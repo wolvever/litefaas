@@ -473,4 +473,4 @@ No CDN, no team UI/billing, no managed DBs in core, no ACME-in-daemon, no Kubern
 [MIT](LICENSE)
 
 
-Named secret env bags: `lf secret import .env --env prod` then `lf deploy --env prod` resolves `${secret:…}` from that bag (distinct from CLI `lf context`). Values are never printed by list/import.
+Named secret env bags: `lf secret import .env --env prod` then `lf deploy --env prod` resolves `${secret:…}` from that bag (distinct from CLI `lf context`). `lf deploy --inject-env [--env NAME]` also copies every bag key into container env (manifest env keys win). Values are never printed by list/import.

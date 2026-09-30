@@ -307,6 +307,35 @@ func ResolveEnv(env map[string]string, get func(string) (string, error)) (map[st
 	return out, nil
 }
 
+// MergeBag copies secret bag entries into dst for keys not already present.
+// Existing keys in dst win. Errors mention names only — never plaintext values.
+func MergeBag(dst map[string]string, names []string, get func(string) (string, error)) (map[string]string, error) {
+	if get == nil {
+		return nil, fmt.Errorf("secret store not configured")
+	}
+	out := make(map[string]string, len(dst)+len(names))
+	for k, v := range dst {
+		out[k] = v
+	}
+	for _, name := range names {
+		if name == "" {
+			continue
+		}
+		if _, ok := out[name]; ok {
+			continue
+		}
+		val, err := get(name)
+		if err != nil {
+			if errors.Is(err, ErrNotFound) {
+				return nil, fmt.Errorf("unknown secret %q", name)
+			}
+			return nil, fmt.Errorf("secret %q: %w", name, err)
+		}
+		out[name] = val
+	}
+	return out, nil
+}
+
 func resolveValue(v string, get func(string) (string, error)) (string, error) {
 	var first error
 	out := refRE.ReplaceAllStringFunc(v, func(m string) string {

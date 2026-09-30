@@ -240,3 +240,43 @@ func TestValidateEnv(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestMergeBag(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEnv("prod", "DB", "prod-db"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEnv("prod", "TOKEN", "prod-tok"); err != nil {
+		t.Fatal(err)
+	}
+	get, err := s.GetterFor("prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	names, err := s.ListEnv("prod")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := MergeBag(map[string]string{"TOKEN": "manifest-wins", "EXTRA": "keep"}, names, get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["TOKEN"] != "manifest-wins" {
+		t.Fatalf("precedence: %#v", out)
+	}
+	if out["DB"] != "prod-db" {
+		t.Fatalf("injected: %#v", out)
+	}
+	if out["EXTRA"] != "keep" {
+		t.Fatalf("kept: %#v", out)
+	}
+	// error path must not include plaintext
+	_, err = MergeBag(nil, []string{"missing"}, get)
+	if err == nil || strings.Contains(err.Error(), "prod-") {
+		t.Fatalf("err=%v", err)
+	}
+}

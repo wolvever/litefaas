@@ -21,6 +21,7 @@ func cmdDeploy(args []string) error {
 	cfgDir := fs.String("config-dir", "", "CLI config directory (default ~/.litefaas)")
 	stackID := fs.String("stack", "", "stack pack id (overrides detection)")
 	secEnv := fs.String("env", "", "secret env bag for ${secret:…} resolution (not CLI context)")
+	injectEnv := fs.Bool("inject-env", false, "inject all keys from the secret env bag into container env (manifest keys win)")
 	rest, err := parseMixed(fs, args)
 	if err != nil {
 		return err
@@ -40,7 +41,7 @@ func cmdDeploy(args []string) error {
 	if res.Multi != nil {
 		n := 0
 		for i := range res.Multi.Services {
-			if err := deployResource(c, res.Multi.Services[i].Resource(), *secEnv); err != nil {
+			if err := deployResource(c, res.Multi.Services[i].Resource(), *secEnv, *injectEnv); err != nil {
 				return err
 			}
 			n++
@@ -54,13 +55,13 @@ func cmdDeploy(args []string) error {
 			fmt.Printf("stack hints (not started by litefaas): %s\n", h)
 		}
 	}
-	if err := deployResource(c, res.Manifest.Resource(), *secEnv); err != nil {
+	if err := deployResource(c, res.Manifest.Resource(), *secEnv, *injectEnv); err != nil {
 		return err
 	}
 	return applyProjectEdgeRules(c, dir)
 }
 
-func deployResource(c *client.Client, res types.Resource, secEnv string) error {
+func deployResource(c *client.Client, res types.Resource, secEnv string, inject bool) error {
 	if _, err := c.Create(res); err != nil {
 		if !client.IsConflict(err) {
 			return err
@@ -72,7 +73,7 @@ func deployResource(c *client.Client, res types.Resource, secEnv string) error {
 	} else {
 		fmt.Printf("registered %s\n", res.Name)
 	}
-	dep, err := c.DeployEnv(res.Name, res.Image, secEnv)
+	dep, err := c.DeployEnvInject(res.Name, res.Image, secEnv, inject)
 	if err != nil {
 		return err
 	}
