@@ -27,7 +27,8 @@ Global frontend DX: CDN edge, git-OAuth previews, team billing, managed platform
 - Deploy summary with edge URLs (no secret values)
 - Install UX (`install.sh` + release binaries) and `make demo`
 - Local rebuild loop (`lf watch`) — debounce → Docker build → API deploy cutover (Netlify Dev-feel; **not** framework HMR inside the container, and **not** `netlify watch` waiting on remote CDN deploys)
-- `_redirects` + thin `netlify.toml` `[[redirects]]` / `[[headers]]` → gateway edge rules (data, not Netlify SaaS; force/`Role`/`Query` skipped in MVP)
+- `_redirects` + thin `netlify.toml` `[[redirects]]` / `[[headers]]` + `vercel.json` redirects/rewrites/headers/`routes` → gateway edge rules (data, not SaaS; force/`Role`/`Query`/middleware skipped)
+- Path placeholders: trailing `/*` + `:splat`, `:param` segments, mixed `/shop/:cat/*`, cheap `(.*)`/`$1` → splat; optional Vercel `cleanUrls` → single-segment `/:page.html` → `/:page`
 
 ## Explicit non-goals (core)
 
@@ -48,3 +49,23 @@ example.com {
     reverse_proxy 127.0.0.1:8080
 }
 ```
+
+
+## Edge rules subset (honest)
+
+| Supported | Notes |
+|-----------|--------|
+| `_redirects` from/to/status | force/`Role`/`Query` ignored |
+| `netlify.toml` `[[redirects]]` / `[[headers]]` | build/plugins/functions ignored |
+| `vercel.json` redirects / rewrites / headers | builds/functions/crons/images ignored |
+| `vercel.json` `routes[]` | `src`/`dest`/`status`/`headers` only; no `middleware`/`handle`/`has` |
+| Placeholders | `/*`+`:splat`, `:param`, mixed `:param`+`/*`, `(.*)`→`/*`, `$1`→`:splat` |
+| `cleanUrls: true` | single-segment `/:page.html` → `/:page` only; nested `.html` needs explicit rules |
+
+### Still non-goals (edge / platform)
+
+- CDN / global edge network / ISR / image optimization
+- Vercel / Netlify **middleware** SaaS and Edge Middleware
+- Full PCRE route engine beyond cheap `(.*)` / `:param` / `/*`
+- Host-based draft aliases / multi-tenant preview hostnames
+- Per-project edge-rule merge provenance (deploy still global PUT)

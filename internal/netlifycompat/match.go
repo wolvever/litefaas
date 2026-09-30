@@ -72,7 +72,8 @@ func ExpandDest(to, splat string, params map[string]string) string {
 	return out
 }
 
-// matchFrom supports exact paths, trailing /* splat, and single-segment :param placeholders.
+// matchFrom supports exact paths, trailing /* splat, single-segment :param
+// placeholders, and mixed :param + trailing /* (e.g. /shop/:cat/*).
 // Returns matched, splat value, named params, and specificity (literal rune count).
 func matchFrom(path, from string) (bool, string, map[string]string, int) {
 	if from == "" {
@@ -80,6 +81,9 @@ func matchFrom(path, from string) (bool, string, map[string]string, int) {
 	}
 	if strings.HasSuffix(from, "/*") {
 		prefix := strings.TrimSuffix(from, "/*")
+		if strings.Contains(prefix, "/:") || strings.HasPrefix(strings.TrimPrefix(prefix, "/"), ":") || strings.Contains(prefix, ":") {
+			return matchParamsWithSplat(path, prefix)
+		}
 		if path == prefix || path == prefix+"/" {
 			return true, "", nil, len(prefix)
 		}
@@ -94,7 +98,7 @@ func matchFrom(path, from string) (bool, string, map[string]string, int) {
 		}
 		return false, "", nil, 0
 	}
-	if strings.Contains(from, "/:") || strings.HasPrefix(from, ":") {
+	if strings.Contains(from, "/:") || strings.HasPrefix(from, ":") || strings.Contains(from, ":") {
 		return matchParams(path, from)
 	}
 	p := strings.TrimRight(from, "/")
@@ -117,10 +121,20 @@ func matchParams(path, from string) (bool, string, map[string]string, int) {
 	score := 0
 	for i := range fromParts {
 		fp, pp := fromParts[i], pathParts[i]
-		if strings.HasPrefix(fp, ":") {
-			name := strings.TrimPrefix(fp, ":")
+		ok, name, rest := parseParamSegment(fp)
+		if ok {
 			if name == "" || strings.Contains(name, "*") {
 				return false, "", nil, 0
+			}
+			// Optional literal suffix on param segment (e.g. :page.html).
+			if rest != "" {
+				if !strings.HasSuffix(pp, rest) {
+					return false, "", nil, 0
+				}
+				pp = strings.TrimSuffix(pp, rest)
+				if pp == "" {
+					return false, "", nil, 0
+				}
 			}
 			params[name] = pp
 			continue
@@ -131,6 +145,58 @@ func matchParams(path, from string) (bool, string, map[string]string, int) {
 		score += len(fp)
 	}
 	return true, "", params, score
+}
+
+func matchParamsWithSplat(path, prefixFrom string) (bool, string, map[string]string, int) {
+	fromParts := splitPath(prefixFrom)
+	pathParts := splitPath(path)
+	if len(pathParts) < len(fromParts) {
+		return false, "", nil, 0
+	}
+	params := map[string]string{}
+	score := 0
+	for i := range fromParts {
+		fp, pp := fromParts[i], pathParts[i]
+		ok, name, rest := parseParamSegment(fp)
+		if ok {
+			if name == "" || strings.Contains(name, "*") {
+				return false, "", nil, 0
+			}
+			if rest != "" {
+				if !strings.HasSuffix(pp, rest) {
+					return false, "", nil, 0
+				}
+				pp = strings.TrimSuffix(pp, rest)
+				if pp == "" {
+					return false, "", nil, 0
+				}
+			}
+			params[name] = pp
+			continue
+		}
+		if fp != pp {
+			return false, "", nil, 0
+		}
+		score += len(fp)
+	}
+	splat := strings.Join(pathParts[len(fromParts):], "/")
+	return true, splat, params, score + len(fromParts)
+}
+
+// parseParamSegment detects :name or :name.suffix (literal suffix after name).
+func parseParamSegment(fp string) (ok bool, name, suffix string) {
+	if !strings.HasPrefix(fp, ":") {
+		return false, "", ""
+	}
+	body := strings.TrimPrefix(fp, ":")
+	if body == "" {
+		return true, "", ""
+	}
+	// Split on first '.' for cleanUrls-style :page.html
+	if i := strings.IndexByte(body, '.'); i >= 0 {
+		return true, body[:i], body[i:]
+	}
+	return true, body, ""
 }
 
 func splitPath(p string) []string {

@@ -50,6 +50,8 @@ func ParseNetlifyTOML(src string) ([]EdgeRule, error) {
 		if !validRedirectStatus(status) {
 			return nil, fmt.Errorf("netlify.toml redirects[%d]: unsupported status %d", i, status)
 		}
+		from = normalizeCaptureGroup(from)
+		to = normalizeDestCaptures(to)
 		out = append(out, EdgeRule{
 			From:   from,
 			To:     to,

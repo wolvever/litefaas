@@ -10,6 +10,8 @@ type vercelFile struct {
 	Redirects []vercelRedirect `json:"redirects"`
 	Rewrites  []vercelRewrite  `json:"rewrites"`
 	Headers   []vercelHeaders  `json:"headers"`
+	Routes    []vercelRoute    `json:"routes"`
+	CleanUrls *bool            `json:"cleanUrls"`
 }
 
 type vercelRedirect struct {
@@ -34,8 +36,17 @@ type vercelHeader struct {
 	Value string `json:"value"`
 }
 
-// ParseVercelJSON parses a vercel.json subset: redirects, rewrites, headers.
-// builds/routes/cleanUrls/functions/crons/images are ignored.
+// Legacy vercel.json routes[] subset (src/dest/status/headers).
+type vercelRoute struct {
+	Src     string            `json:"src"`
+	Dest    string            `json:"dest"`
+	Status  int               `json:"status"`
+	Headers map[string]string `json:"headers"`
+}
+
+// ParseVercelJSON parses a vercel.json subset: redirects, rewrites, headers, routes,
+// and optional cleanUrls (single-segment :page.html → /:page).
+// builds/functions/crons/images/middleware/trailingSlash are ignored.
 func ParseVercelJSON(src string) ([]EdgeRule, error) {
 	var f vercelFile
 	if err := json.Unmarshal([]byte(src), &f); err != nil {
@@ -47,7 +58,7 @@ func ParseVercelJSON(src string) ([]EdgeRule, error) {
 		if err != nil {
 			return nil, fmt.Errorf("vercel.json redirects[%d]: %w", i, err)
 		}
-		to := strings.TrimSpace(r.Destination)
+		to := normalizeDestCaptures(strings.TrimSpace(r.Destination))
 		if to == "" {
 			return nil, fmt.Errorf("vercel.json redirects[%d]: destination is required", i)
 		}
@@ -72,7 +83,7 @@ func ParseVercelJSON(src string) ([]EdgeRule, error) {
 		if err != nil {
 			return nil, fmt.Errorf("vercel.json rewrites[%d]: %w", i, err)
 		}
-		to := strings.TrimSpace(r.Destination)
+		to := normalizeDestCaptures(strings.TrimSpace(r.Destination))
 		if to == "" {
 			return nil, fmt.Errorf("vercel.json rewrites[%d]: destination is required", i)
 		}
@@ -109,10 +120,70 @@ func ParseVercelJSON(src string) ([]EdgeRule, error) {
 			Source:  "vercel.json",
 		})
 	}
+	for i, r := range f.Routes {
+		src := strings.TrimSpace(r.Src)
+		if src == "" {
+			return nil, fmt.Errorf("vercel.json routes[%d]: src is required", i)
+		}
+		from, err := normalizeVercelSource(src)
+		if err != nil {
+			return nil, fmt.Errorf("vercel.json routes[%d]: %w", i, err)
+		}
+		if len(r.Headers) > 0 && strings.TrimSpace(r.Dest) == "" && r.Status == 0 {
+			out = append(out, EdgeRule{
+				From:    from,
+				Status:  0,
+				Headers: cloneStringMap(r.Headers),
+				Source:  "vercel.json",
+			})
+			continue
+		}
+		to := normalizeDestCaptures(strings.TrimSpace(r.Dest))
+		status := r.Status
+		if status == 0 {
+			if to == "" {
+				return nil, fmt.Errorf("vercel.json routes[%d]: dest or headers required", i)
+			}
+			status = 200
+		}
+		if !validRedirectStatus(status) {
+			return nil, fmt.Errorf("vercel.json routes[%d]: unsupported status %d", i, status)
+		}
+		rule := EdgeRule{
+			From:   from,
+			To:     to,
+			Status: status,
+			Source: "vercel.json",
+		}
+		if len(r.Headers) > 0 {
+			rule.Headers = cloneStringMap(r.Headers)
+		}
+		out = append(out, rule)
+	}
+	if f.CleanUrls != nil && *f.CleanUrls {
+		out = append(out, EdgeRule{
+			From:   "/:page.html",
+			To:     "/:page",
+			Status: 301,
+			Source: "vercel.json:cleanUrls",
+		})
+	}
 	return out, nil
 }
 
-// normalizeVercelSource ensures a leading slash and maps trailing :name* → /* splat.
+func cloneStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for k, v := range in {
+		out[k] = v
+	}
+	return out
+}
+
+// normalizeVercelSource ensures a leading slash, maps trailing :name* → /*,
+// and maps a trailing /(.*) capture group to /*.
 func normalizeVercelSource(source string) (string, error) {
 	s := strings.TrimSpace(source)
 	if s == "" {
@@ -121,6 +192,7 @@ func normalizeVercelSource(source string) (string, error) {
 	if !strings.HasPrefix(s, "/") {
 		s = "/" + s
 	}
+	s = normalizeCaptureGroup(s)
 	parts := strings.Split(s, "/")
 	last := parts[len(parts)-1]
 	if strings.HasPrefix(last, ":") && strings.HasSuffix(last, "*") {
@@ -132,4 +204,29 @@ func normalizeVercelSource(source string) (string, error) {
 		return prefix + "/*", nil
 	}
 	return s, nil
+}
+
+// normalizeCaptureGroup maps a trailing /(.*) or /(.*)[/]? to /*.
+func normalizeCaptureGroup(s string) string {
+	for _, suf := range []string{"/(.*)/", "/(.*)", "(.*)"} {
+		if strings.HasSuffix(s, suf) {
+			prefix := strings.TrimSuffix(s, suf)
+			if suf == "(.*)" && strings.HasSuffix(prefix, "/") {
+				prefix = strings.TrimSuffix(prefix, "/")
+			}
+			if prefix == "" || prefix == "/" {
+				return "/*"
+			}
+			if !strings.HasPrefix(prefix, "/") {
+				prefix = "/" + prefix
+			}
+			return prefix + "/*"
+		}
+	}
+	return s
+}
+
+// normalizeDestCaptures maps $1 → :splat for capture-group destinations.
+func normalizeDestCaptures(to string) string {
+	return strings.ReplaceAll(to, "$1", ":splat")
 }
