@@ -92,7 +92,7 @@ Usage:
   lf invoke <name> [-d BODY] POST /v1/invoke/{name}
   lf list                    List resources
   lf delete <name> [--prune-volumes]  Delete resource (opt-in volume prune)
-  lf logs [name|path] [-f]   Stream container logs (or --daemon for litefaasd.log)
+  lf logs [name|path] [-f]   Stream container logs (multi-service merges; or --daemon)
   lf routes                  List the edge route table (GET /v1/routes)
   lf routes set <file.json>  Replace the route table (PUT /v1/routes)
   lf routes clear            Drop the override; derive routes from manifests

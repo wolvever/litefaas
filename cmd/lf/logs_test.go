@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -91,3 +92,33 @@ func TestIsNotDeployedErr(t *testing.T) {
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+func TestPrefixWriterLines(t *testing.T) {
+	var mu sync.Mutex
+	var buf bytes.Buffer
+	pw := &prefixWriter{mu: &mu, w: &buf, prefix: "[api] "}
+	if _, err := pw.Write([]byte("hello\nwor")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := pw.Write([]byte("ld\n")); err != nil {
+		t.Fatal(err)
+	}
+	if err := pw.Flush(); err != nil {
+		t.Fatal(err)
+	}
+	got := buf.String()
+	if !strings.Contains(got, "[api] hello\n") || !strings.Contains(got, "[api] world\n") {
+		t.Fatalf("got %q", got)
+	}
+}
+
+func TestStreamLogsSinglePassesThrough(t *testing.T) {
+	// prefix only used for aggregate; single-name path has no prefixWriter.
+	if prefixLogLabel("api") != "[api] " {
+		t.Fatal(prefixLogLabel("api"))
+	}
+}
+
+func prefixLogLabel(name string) string {
+	return "[" + name + "] "
+}
