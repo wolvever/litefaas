@@ -58,6 +58,8 @@ func ParseRedirects(src string) ([]EdgeRule, error) {
 			return nil, fmt.Errorf("_redirects line %d: unsupported status %d", lineNo, status)
 		}
 		// Ignore extra condition tokens (Role=, Query=) beyond status.
+		from = normalizeCaptureGroup(from)
+		to = normalizeDestCaptures(to)
 		out = append(out, EdgeRule{
 			From:   from,
 			To:     to,

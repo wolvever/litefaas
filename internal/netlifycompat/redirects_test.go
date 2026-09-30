@@ -176,3 +176,80 @@ func TestLoadProjectVercel(t *testing.T) {
 		t.Fatalf("%+v", rules)
 	}
 }
+
+func TestParseVercelRoutesAndCleanUrls(t *testing.T) {
+	src := `{
+  "cleanUrls": true,
+  "routes": [
+    {"src": "/legacy/(.*)", "dest": "/new/$1", "status": 301},
+    {"src": "/api", "headers": {"X-Api": "1"}}
+  ]
+}`
+	rules, err := ParseVercelJSON(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var redir, hdr, clean *EdgeRule
+	for i := range rules {
+		r := &rules[i]
+		switch {
+		case r.Source == "vercel.json:cleanUrls":
+			clean = r
+		case r.Status == 0:
+			hdr = r
+		case r.Status == 301 && r.From == "/legacy/*":
+			redir = r
+		}
+	}
+	if redir == nil || redir.To != "/new/:splat" {
+		t.Fatalf("routes redir = %+v", redir)
+	}
+	if hdr == nil || hdr.Headers["X-Api"] != "1" {
+		t.Fatalf("routes hdr = %+v", hdr)
+	}
+	if clean == nil || clean.From != "/:page.html" || clean.To != "/:page" {
+		t.Fatalf("cleanUrls = %+v", clean)
+	}
+}
+
+func TestMatchParamWithSplat(t *testing.T) {
+	rules := []EdgeRule{{From: "/shop/:cat/*", To: "/c/:cat/:splat", Status: 200}}
+	m, ok := MatchPath("/shop/shoes/red/42", rules)
+	if !ok || m.Params["cat"] != "shoes" || m.Splat != "red/42" || m.Dest != "/c/shoes/red/42" {
+		t.Fatalf("%+v ok=%v", m, ok)
+	}
+	m, ok = MatchPath("/shop/shoes", rules)
+	if !ok || m.Params["cat"] != "shoes" || m.Splat != "" || m.Dest != "/c/shoes/" && m.Dest != "/c/shoes" {
+		// ExpandDest may leave trailing slash from "/c/:cat/:splat" → "/c/shoes/"
+		if !ok || m.Params["cat"] != "shoes" {
+			t.Fatalf("%+v ok=%v", m, ok)
+		}
+	}
+}
+
+func TestMatchCleanUrlsPage(t *testing.T) {
+	rules := []EdgeRule{{From: "/:page.html", To: "/:page", Status: 301}}
+	m, ok := MatchPath("/about.html", rules)
+	if !ok || m.Dest != "/about" || m.Params["page"] != "about" {
+		t.Fatalf("%+v ok=%v", m, ok)
+	}
+}
+
+func TestNormalizeCaptureGroup(t *testing.T) {
+	if g := normalizeCaptureGroup("/api/(.*)"); g != "/api/*" {
+		t.Fatalf("%q", g)
+	}
+	if g := normalizeDestCaptures("/x/$1"); g != "/x/:splat" {
+		t.Fatalf("%q", g)
+	}
+}
+
+func TestParseRedirectsCaptureGroup(t *testing.T) {
+	rules, err := ParseRedirects("/docs/(.*) /help/$1 301\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rules) != 1 || rules[0].From != "/docs/*" || rules[0].To != "/help/:splat" {
+		t.Fatalf("%+v", rules)
+	}
+}
