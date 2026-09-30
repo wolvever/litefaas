@@ -81,7 +81,7 @@ cd hello
 ../lf detect .                        # optional: printable pack/runtime plan
 ../lf deploy                          # prints deploy summary (edge URLs; secret refs only)
 ../lf invoke hello -d '{"name":"litefaas"}'
-../lf logs hello --tail 50          # or: lf logs .  /  lf logs --daemon -f
+../lf logs hello --tail 50          # or: lf logs . -f  (multi-service merges with [name] prefix) /  lf logs --daemon -f
 # local edit loop (Docker cutover, not framework HMR):
 # ../lf watch .                       # ensure daemon → build → deploy; rebuild on change
 ```
@@ -110,7 +110,7 @@ What each step does:
 | `lf build` | local Docker | `docker build -t <image> .` (default image `hello:latest`; no registry) |
 | `lf deploy` | API + Docker | `POST /v1/functions` (or `PUT` if it exists) then `POST /v1/functions/{name}/deploy` — create/replace container `litefaas-<name>`, `PORT`, memory, env; publish `127.0.0.1:<ephemeral>→$PORT` |
 | `lf invoke` | API | `POST /v1/invoke/{name}` reverse-proxies to the container (wakes a stopped function) |
-| `lf logs` | API + Docker (or local file) | `GET /v1/functions/{name}/logs` tails `docker logs`; `lf logs --daemon` tails `data-dir/litefaasd.log`; path resolve like `lf url` |
+| `lf logs` | API + Docker (or local file) | `GET /v1/functions/{name}/logs` tails `docker logs`; multi-service path merges streams with `[name]` prefixes; `lf logs --daemon` tails `data-dir/litefaasd.log`; path resolve like `lf url` |
 
 Prefer `lf check .` before the first `lf up` / deploy to prove host recipes + image boot (pack `host.build` → `docker build` → one-shot health smoke; `--skip-host` escapes when the language toolchain is missing). Prefer `lf watch .` after the first deploy — it debounces file changes, runs `lf build` → `lf deploy`, and prints the same deploy summary (Docker image cutover, **not** framework HMR; see [vs Netlify / Vercel](docs/vs-netlify-vercel.md)). Or re-run `lf build && lf deploy` manually. Deploy also applies `_redirects` / `netlify.toml` / `vercel.json` edge rules when present. After deploy, `lf url [name|path]` prints the primary edge (or invoke) URL; `lf url --draft` prints `/--draft/<name>/` (single-node alias); `lf open` opens it in your browser (skips browser for invoke-only functions). `lf delete hello` removes the resource and stops the container. `lf up --check` runs the same preflight on `.` and fails closed before starting/reusing litefaasd.
 
