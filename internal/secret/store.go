@@ -25,7 +25,7 @@ var (
 	ErrNotFound = errors.New("secret not found")
 	nameRE      = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
 	envRE       = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,31}$`)
-	refRE       = regexp.MustCompile(`\$\{secret:([A-Za-z0-9][A-Za-z0-9._-]{0,63})\}`)
+	refRE       = regexp.MustCompile(`\$\{secret:([A-Za-z0-9][A-Za-z0-9._/-]{0,96})\}`)
 )
 
 // Store persists AES-GCM ciphertext files under data-dir/secrets/<env>/.
@@ -275,19 +275,53 @@ func (s *Store) ListEnv(env string) ([]string, error) {
 	return names, nil
 }
 
-// GetterFor returns a Get closure scoped to env (for ResolveEnv).
+// ParseSecretRef interprets the inside of ${secret:…}.
+// Cross-env forms: "prod.DB" or "prod/DB" (env bag + secret name).
+// Bare "DB" uses the selected deploy env bag (cross=false).
+// When the token matches env.name shape, it is always treated as cross-env
+// (do not use secret names whose first dotted segment is a valid env bag name).
+func ParseSecretRef(token string) (envBag, name string, cross bool) {
+	token = strings.TrimSpace(token)
+	if token == "" {
+		return "", "", false
+	}
+	if i := strings.IndexByte(token, '/'); i >= 0 {
+		left, right := token[:i], token[i+1:]
+		if ValidateEnv(left) == nil && ValidateName(right) == nil {
+			return left, right, true
+		}
+		return "", token, false
+	}
+	if i := strings.IndexByte(token, '.'); i >= 0 {
+		left, right := token[:i], token[i+1:]
+		if envRE.MatchString(left) && nameRE.MatchString(right) {
+			return left, right, true
+		}
+	}
+	return "", token, false
+}
+
+// GetterFor returns a Get closure for ResolveEnv tokens (bare or cross-env).
+// Bare tokens resolve in selected; "prod.DB" / "prod/DB" resolve in bag prod.
 func (s *Store) GetterFor(env string) (func(string) (string, error), error) {
 	env, err := NormalizeEnv(env)
 	if err != nil {
 		return nil, err
 	}
-	e := env
-	return func(name string) (string, error) {
-		return s.GetEnv(e, name)
+	selected := env
+	return func(token string) (string, error) {
+		bag, name, cross := ParseSecretRef(token)
+		if cross {
+			return s.GetEnv(bag, name)
+		}
+		if err := ValidateName(name); err != nil {
+			return "", err
+		}
+		return s.GetEnv(selected, name)
 	}, nil
 }
 
-// ResolveEnv expands ${secret:name} references in env values.
+// ResolveEnv expands ${secret:…} references (bare or cross-env tokens) in env values.
 // Errors mention the secret name only — never plaintext.
 func ResolveEnv(env map[string]string, get func(string) (string, error)) (map[string]string, error) {
 	if len(env) == 0 {
@@ -343,14 +377,27 @@ func resolveValue(v string, get func(string) (string, error)) (string, error) {
 		if len(sub) < 2 {
 			return m
 		}
-		name := sub[1]
-		val, err := get(name)
+		token := sub[1]
+		val, err := get(token)
 		if err != nil {
 			if first == nil {
-				if errors.Is(err, ErrNotFound) {
-					first = fmt.Errorf("unknown secret %q", name)
+				bag, name, cross := ParseSecretRef(token)
+				label := token
+				if cross {
+					label = name
 				} else {
-					first = fmt.Errorf("secret %q: %w", name, err)
+					label = name
+				}
+				if errors.Is(err, ErrNotFound) {
+					if cross {
+						first = fmt.Errorf("unknown secret %q in env %q", name, bag)
+					} else {
+						first = fmt.Errorf("unknown secret %q", label)
+					}
+				} else if cross {
+					first = fmt.Errorf("secret %q in env %q: %w", name, bag, err)
+				} else {
+					first = fmt.Errorf("secret %q: %w", label, err)
 				}
 			}
 			return m
@@ -363,10 +410,10 @@ func resolveValue(v string, get func(string) (string, error)) (string, error) {
 	return out, nil
 }
 
-// EnvRef is an env key that references a secret by name (value never included).
+// EnvRef is an env key that references a secret (value never included).
 type EnvRef struct {
 	Key  string
-	Name string // secret name inside ${secret:name}
+	Name string // token inside ${secret:…}, e.g. DB or prod.DB
 }
 
 // ListRefs returns env keys whose values contain ${secret:…}, sorted by key.

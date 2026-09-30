@@ -293,3 +293,49 @@ func TestDeployInjectEnv(t *testing.T) {
 		t.Fatalf("response leaked secret: %s", rec.Body.String())
 	}
 }
+
+func TestDeployCrossEnvSecretRef(t *testing.T) {
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	sec, err := secret.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = sec.SetEnv("prod", "DB", "cross-prod-db")
+	_ = sec.SetEnv("staging", "DB", "staging-db")
+	fake := runner.NewFake()
+	srv := New(Options{Store: st, Secrets: sec, Token: "tok", Runner: fake})
+
+	res := types.Resource{
+		Name: "api", Kind: types.KindBackend, Runtime: types.RuntimePython,
+		Image: "api:latest", Port: 8080, Memory: 128, Health: "/healthz",
+		Env: map[string]string{
+			"DATABASE_URL": "${secret:prod.DB}",
+			"LOCAL":        "${secret:DB}",
+		},
+	}
+	raw, _ := json.Marshal(res)
+	req := httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(raw))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create=%d %s", rec.Code, rec.Body.String())
+	}
+
+	dep := httptest.NewRequest(http.MethodPost, "/v1/functions/api/deploy?env=staging", bytes.NewReader([]byte(`{}`)))
+	dep.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, dep)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("deploy=%d %s", rec.Code, rec.Body.String())
+	}
+	got := fake.Deploys[0].Env
+	if got["DATABASE_URL"] != "cross-prod-db" || got["LOCAL"] != "staging-db" {
+		t.Fatalf("%#v", got)
+	}
+}
