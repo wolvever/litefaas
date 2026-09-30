@@ -280,3 +280,63 @@ func TestMergeBag(t *testing.T) {
 		t.Fatalf("err=%v", err)
 	}
 }
+
+func TestParseSecretRef(t *testing.T) {
+	bag, name, cross := ParseSecretRef("prod.DB")
+	if !cross || bag != "prod" || name != "DB" {
+		t.Fatalf("%q %q %v", bag, name, cross)
+	}
+	bag, name, cross = ParseSecretRef("prod/DB")
+	if !cross || bag != "prod" || name != "DB" {
+		t.Fatalf("slash %q %q %v", bag, name, cross)
+	}
+	bag, name, cross = ParseSecretRef("DB")
+	if cross || name != "DB" {
+		t.Fatalf("bare %q %q %v", bag, name, cross)
+	}
+	// Uppercase first segment is not an env bag → bare token
+	_, name, cross = ParseSecretRef("PROD.DB")
+	if cross || name != "PROD.DB" {
+		t.Fatalf("upper %q %v", name, cross)
+	}
+}
+
+func TestResolveEnvCross(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEnv("prod", "DB", "prod-db-url"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetEnv("staging", "DB", "staging-db-url"); err != nil {
+		t.Fatal(err)
+	}
+	get, err := s.GetterFor("staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := ResolveEnv(map[string]string{
+		"A": "${secret:prod.DB}",
+		"B": "${secret:prod/DB}",
+		"C": "${secret:DB}",
+	}, get)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out["A"] != "prod-db-url" || out["B"] != "prod-db-url" || out["C"] != "staging-db-url" {
+		t.Fatalf("%#v", out)
+	}
+	_, err = ResolveEnv(map[string]string{"X": "${secret:prod.MISSING}"}, get)
+	if err == nil || !strings.Contains(err.Error(), `unknown secret "MISSING" in env "prod"`) {
+		t.Fatalf("err=%v", err)
+	}
+	if strings.Contains(err.Error(), "prod-db") {
+		t.Fatalf("leaked value: %v", err)
+	}
+	refs := ListRefs(map[string]string{"A": "${secret:prod.DB}"})
+	if len(refs) != 1 || refs[0].Name != "prod.DB" {
+		t.Fatalf("%+v", refs)
+	}
+}

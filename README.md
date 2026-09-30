@@ -320,6 +320,7 @@ Reference them in `litefaas.yaml` env; litefaasd expands `${secret:name}` at **d
 ```yaml
 env:
   DATABASE_URL: ${secret:db}
+  # or cross-env: ${secret:prod.DB}  /  ${secret:prod/DB}
 ```
 
 API: `PUT/GET/DELETE /v1/secrets/{name}`, `GET /v1/secrets` (names only).
@@ -473,4 +474,4 @@ No CDN, no team UI/billing, no managed DBs in core, no ACME-in-daemon, no Kubern
 [MIT](LICENSE)
 
 
-Named secret env bags: `lf secret import .env --env prod` then `lf deploy --env prod` resolves `${secret:…}` from that bag (distinct from CLI `lf context`). `lf deploy --inject-env [--env NAME]` also copies every bag key into container env (manifest env keys win). Values are never printed by list/import.
+Named secret env bags: `lf secret import .env --env prod` then `lf deploy --env prod` resolves `${secret:…}` from that bag (distinct from CLI `lf context`). Cross-env refs: `${secret:prod.DB}` or `${secret:prod/DB}` while deploying with another `--env`. `lf deploy --inject-env [--env NAME]` also copies every bag key into container env (manifest env keys win). Values are never printed by list/import.
