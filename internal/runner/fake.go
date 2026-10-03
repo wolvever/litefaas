@@ -9,13 +9,13 @@ import (
 
 // Fake is an in-memory runner for tests (no Docker).
 type Fake struct {
-	Endpoints   map[string]string
-	Prefer      map[string]string
-	LogsText    map[string]string
-	Deploys     []types.Resource
-	Removed     []string
-	RemoveOpts  []RemoveOpts
-	LogCalls    []string
+	Endpoints  map[string]string
+	Prefer     map[string]string
+	LogsText   map[string]string
+	Deploys    []types.Resource
+	Removed    []string
+	RemoveOpts []RemoveOpts
+	LogCalls   []string
 }
 
 func NewFake() *Fake {
@@ -32,7 +32,7 @@ func (f *Fake) Deploy(_ context.Context, res types.Resource) (Result, error) {
 		ep = "http://127.0.0.1:9"
 	}
 	f.Endpoints[res.Name] = ep
-	return Result{Container: ContainerName(res.Name), Endpoint: ep}, nil
+	return Result{Container: ContainerName(res.Name), Endpoint: ep, ImageID: "sha256:fake"}, nil
 }
 
 func (f *Fake) Remove(_ context.Context, name string, opts ...RemoveOpts) error {

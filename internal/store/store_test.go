@@ -142,3 +142,65 @@ func TestEdgeRulesPersist(t *testing.T) {
 		t.Fatalf("cleared ok=%v err=%v", ok, err)
 	}
 }
+
+func TestRevisionSnapshotPinAndPrune(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if _, err := s.Create(types.Resource{Name: "api", Kind: types.KindBackend, Runtime: types.RuntimeGo}); err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.AddRevisionFull(types.Revision{
+		Name: "api", Image: "api:1", ImageID: "sha256:one", Status: "deployed",
+		Snapshot: types.RevisionSnapshot{
+			PackID: "go-chi",
+			EnvRefs: []types.SnapshotEnvRef{
+				{Key: "DATABASE_URL", Ref: "${secret:db}"},
+				{Key: "TOKEN", Ref: "super-secret-value"},
+			},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Snapshot.EnvRefs[1].Ref != "" {
+		t.Fatalf("plaintext stored: %+v", first.Snapshot.EnvRefs)
+	}
+	if _, err := s.SetRevisionPinned("api", first.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	for i := 2; i <= 7; i++ {
+		if _, err := s.AddRevision("api", "api:"+string(rune('0'+i)), "deployed"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := s.PruneRevisions("api", DefaultRevisionKeep)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n < 1 {
+		t.Fatalf("expected prune, n=%d", n)
+	}
+	list, err := s.ListRevisions("api")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 7 rows, keep 5, but pinned oldest is exempt so we delete unpinned until
+	// remaining would be 5. Newest is kept. Excess starts at 2.
+	if len(list) != 5 {
+		t.Fatalf("len=%d %+v", len(list), list)
+	}
+	if list[0].ID != first.ID || !list[0].Pinned {
+		t.Fatalf("pinned oldest dropped: %+v", list[0])
+	}
+	if list[0].ImageID != "sha256:one" || list[0].Snapshot.PackID != "go-chi" {
+		t.Fatalf("snapshot lost: %+v", list[0])
+	}
+	if list[0].Snapshot.EnvRefs[0].Ref != "${secret:db}" {
+		t.Fatalf("ref lost: %+v", list[0].Snapshot)
+	}
+	reopen := list
+	_ = reopen
+}

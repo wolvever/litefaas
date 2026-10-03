@@ -41,7 +41,7 @@ func cmdDeploy(args []string) error {
 	if res.Multi != nil {
 		n := 0
 		for i := range res.Multi.Services {
-			if err := deployResource(c, res.Multi.Services[i].Resource(), *secEnv, *injectEnv); err != nil {
+			if err := deployResource(c, res.Multi.Services[i].Resource(), res.Multi.Services[i].Stack, *secEnv, *injectEnv); err != nil {
 				return err
 			}
 			n++
@@ -55,13 +55,19 @@ func cmdDeploy(args []string) error {
 			fmt.Printf("stack hints (not started by litefaas): %s\n", h)
 		}
 	}
-	if err := deployResource(c, res.Manifest.Resource(), *secEnv, *injectEnv); err != nil {
+	packID := ""
+	if res.Pack != nil {
+		packID = res.Pack.ID
+	} else if res.Manifest != nil {
+		packID = res.Manifest.Stack
+	}
+	if err := deployResource(c, res.Manifest.Resource(), packID, *secEnv, *injectEnv); err != nil {
 		return err
 	}
 	return applyProjectEdgeRules(c, dir)
 }
 
-func deployResource(c *client.Client, res types.Resource, secEnv string, inject bool) error {
+func deployResource(c *client.Client, res types.Resource, packID, secEnv string, inject bool) error {
 	if _, err := c.Create(res); err != nil {
 		if !client.IsConflict(err) {
 			return err
@@ -73,14 +79,14 @@ func deployResource(c *client.Client, res types.Resource, secEnv string, inject 
 	} else {
 		fmt.Printf("registered %s\n", res.Name)
 	}
-	dep, err := c.DeployEnvInject(res.Name, res.Image, secEnv, inject)
+	snap := revisionSnapshot(res, packID)
+	dep, err := c.DeployWith(res.Name, client.DeployOptions{Image: res.Image, Env: secEnv, Inject: inject, Snapshot: &snap})
 	if err != nil {
 		return err
 	}
 	formatDeploySummary(os.Stdout, c.Gateway, res, dep)
 	return nil
 }
-
 
 func applyProjectEdgeRules(c *client.Client, dir string) error {
 	rules, err := netlifycompat.LoadProject(dir)

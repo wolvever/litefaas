@@ -45,6 +45,10 @@ func run(args []string) error {
 		return cmdBuild(args[1:])
 	case "deploy":
 		return cmdDeploy(args[1:])
+	case "revisions", "revision":
+		return cmdRevisions(args[1:])
+	case "rollback":
+		return cmdRollback(args[1:])
 	case "invoke":
 		return cmdInvoke(args[1:])
 	case "list":
@@ -89,6 +93,9 @@ Usage:
   lf detect [path] [--stack ID] [--json]  Print stack/pack plan without building
   lf build [path] [--stack ID] [--plan] [--json]  docker build (or --plan dry-run)
   lf deploy [path] [--stack ID] [--env NAME] [--inject-env]  Register + deploy (secret bag; optional inject)
+  lf revisions [name|path]   List deploy revisions (image id, pack, env refs are server-side)
+  lf revisions pin|unpin NAME ID  Keep a revision past the 5-row cap
+  lf rollback <name> [--id N] [--env NAME]  Redeploy a retained image (does not undo migrations or volumes)
   lf invoke <name> [-d BODY] POST /v1/invoke/{name}
   lf list                    List resources
   lf delete <name> [--prune-volumes]  Delete resource (opt-in volume prune)

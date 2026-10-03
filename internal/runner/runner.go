@@ -28,6 +28,7 @@ var ErrNotDeployed = errors.New("not deployed")
 type Result struct {
 	Container string `json:"container"`
 	Endpoint  string `json:"endpoint"`
+	ImageID   string `json:"image_id,omitempty"`
 }
 
 // LogsOptions selects docker logs flags.
@@ -133,7 +134,26 @@ func (d *Docker) Deploy(ctx context.Context, res types.Resource) (Result, error)
 	if err != nil {
 		return Result{}, err
 	}
-	return Result{Container: stable, Endpoint: ep}, nil
+	out := Result{Container: stable, Endpoint: ep}
+	if id, err := inspectImageID(ctx, res.Image); err == nil {
+		out.ImageID = id
+	}
+	return out, nil
+}
+
+func inspectImageID(ctx context.Context, image string) (string, error) {
+	if strings.TrimSpace(image) == "" {
+		return "", fmt.Errorf("image is required")
+	}
+	id, err := dockercli.Output(ctx, "docker", "image", "inspect", "--format", "{{.Id}}", image)
+	if err != nil {
+		return "", err
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return "", fmt.Errorf("empty image id")
+	}
+	return id, nil
 }
 
 func (d *Docker) ensureVolumes(ctx context.Context, res types.Resource) error {

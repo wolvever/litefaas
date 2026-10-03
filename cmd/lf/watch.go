@@ -36,16 +36,16 @@ func (s *stringList) Set(v string) error {
 }
 
 type watchOptions struct {
-	Path       string
-	StackID    string
-	Debounce   time.Duration
-	Ignore     []string
-	Gateway    string
-	Token      string
-	ConfigDir  string
-	NoUp       bool
-	NoInitial  bool
-	Once       bool
+	Path      string
+	StackID   string
+	Debounce  time.Duration
+	Ignore    []string
+	Gateway   string
+	Token     string
+	ConfigDir string
+	NoUp      bool
+	NoInitial bool
+	Once      bool
 	// Up subset (used unless --no-up)
 	Addr      string
 	DataDir   string
@@ -251,7 +251,7 @@ func runBuildDeploy(ctx context.Context, dir, stackID string, c *client.Client, 
 	if resolved.Multi != nil {
 		n := 0
 		for i := range resolved.Multi.Services {
-			if err := deployResource(c, resolved.Multi.Services[i].Resource(), "", false); err != nil {
+			if err := deployResource(c, resolved.Multi.Services[i].Resource(), resolved.Multi.Services[i].Stack, "", false); err != nil {
 				return err
 			}
 			n++
@@ -265,7 +265,13 @@ func runBuildDeploy(ctx context.Context, dir, stackID string, c *client.Client, 
 			fmt.Fprintf(stdout, "stack hints (not started by litefaas): %s\n", h)
 		}
 	}
-	return deployResource(c, resolved.Manifest.Resource(), "", false)
+	packID := ""
+	if resolved.Pack != nil {
+		packID = resolved.Pack.ID
+	} else if resolved.Manifest != nil {
+		packID = resolved.Manifest.Stack
+	}
+	return deployResource(c, resolved.Manifest.Resource(), packID, "", false)
 }
 
 // shouldWatchNewDir reports whether a Create event path should get watcher.Add.

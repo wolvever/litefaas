@@ -299,13 +299,65 @@ func (c *Client) DeployEnv(name, image, env string) (DeployResult, error) {
 	return c.DeployEnvInject(name, image, env, false)
 }
 
+// DeployOptions is a deploy (or rollback) request.
+type DeployOptions struct {
+	Image    string
+	Env      string
+	Inject   bool
+	Snapshot *types.RevisionSnapshot
+}
+
 func (c *Client) DeployEnvInject(name, image, env string, inject bool) (DeployResult, error) {
+	return c.DeployWith(name, DeployOptions{Image: image, Env: env, Inject: inject})
+}
+
+func (c *Client) DeployWith(name string, opt DeployOptions) (DeployResult, error) {
 	var out DeployResult
-	body := map[string]string{}
-	if image != "" {
-		body["image"] = image
+	body := map[string]any{}
+	if opt.Image != "" {
+		body["image"] = opt.Image
 	}
-	path := "/v1/functions/" + name + "/deploy" + deployQuery(env, inject)
+	if opt.Snapshot != nil {
+		body["snapshot"] = *opt.Snapshot
+	}
+	path := "/v1/functions/" + name + "/deploy" + deployQuery(opt.Env, opt.Inject)
+	if err := c.do(http.MethodPost, path, body, &out); err != nil {
+		return DeployResult{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) Revisions(name string) ([]types.Revision, error) {
+	var out []types.Revision
+	if err := c.do(http.MethodGet, "/v1/functions/"+url.PathEscape(name)+"/revisions", nil, &out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []types.Revision{}
+	}
+	return out, nil
+}
+
+func (c *Client) PinRevision(name string, id int64, pin bool) (types.Revision, error) {
+	method := http.MethodPost
+	if !pin {
+		method = http.MethodDelete
+	}
+	var out types.Revision
+	path := "/v1/functions/" + url.PathEscape(name) + "/revisions/" + strconv.FormatInt(id, 10) + "/pin"
+	if err := c.do(method, path, nil, &out); err != nil {
+		return types.Revision{}, err
+	}
+	return out, nil
+}
+
+func (c *Client) Rollback(name string, id int64, env string) (DeployResult, error) {
+	var out DeployResult
+	body := map[string]any{}
+	if id > 0 {
+		body["id"] = id
+	}
+	path := "/v1/functions/" + url.PathEscape(name) + "/rollback" + deployQuery(env, false)
 	if err := c.do(http.MethodPost, path, body, &out); err != nil {
 		return DeployResult{}, err
 	}
@@ -416,4 +468,3 @@ func (c *Client) do(method, path string, body any, dest any) error {
 	}
 	return json.Unmarshal(raw, dest)
 }
-
