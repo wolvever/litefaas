@@ -119,6 +119,16 @@ release:
   - python manage.py migrate --noinput
 ```
 
+`litefaas.yaml` may declare the editor schema (not fetched at runtime; `lf` validates with the copy in this repo):
+
+```yaml
+# $schema: https://raw.githubusercontent.com/wolvever/litefaas/main/schema/litefaas.schema.json
+name: api
+runtime: go
+```
+
+`lf config validate [path]` errors on bad types and warns on unknown keys. `lf detect` prints those warnings and still prints the plan. The same service schema covers each `stack.yaml` service — this is not a second config format.
+
 `lf revisions` lists retained deploys (image tag, docker image id when inspect succeeds, pack id). `lf revisions pin NAME ID` exempts a row from the 5-revision cap. `lf rollback NAME` (or `--id N`) redeploys that image through the same health-gated cutover. **Rollback does not undo database migrations or named-volume data** — it only swaps the running image. Snapshots store env **refs** (`${secret:…}`) and keys, never secret values.
 
 Prefer `lf check .` before the first `lf up` / deploy to prove host recipes + image boot (pack `host.build` → `docker build` → one-shot health smoke; `--skip-host` escapes when the language toolchain is missing). `lf deploy --draft` runs a second container `litefaas-<name>-draft` served only at `/--draft/<name>/`. It does not replace the prod container and does not run `release:` commands. Draft shares the prod named volumes (so migrations are not auto-run). The secret env bag defaults to `draft`. This is off unless you pass `--draft` (a second container is about 2× memory). `lf url --draft` still prints that path; it 404s until a draft is deployed (it is no longer an alias of prod).

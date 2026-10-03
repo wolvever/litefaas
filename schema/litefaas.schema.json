@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/wolvever/litefaas/main/schema/litefaas.schema.json",
+  "title": "litefaas service",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "runtime"],
+  "properties": {
+    "$schema": {"type": "string"},
+    "name": {"type": "string"},
+    "kind": {"enum": ["function", "backend", "frontend"]},
+    "runtime": {"enum": ["go", "java", "python", "node", "dockerfile", "static"]},
+    "preset": {"type": "string"},
+    "stack": {"type": "string"},
+    "handler": {"type": "string"},
+    "image": {"type": "string"},
+    "port": {"type": "integer", "minimum": 1, "maximum": 65535},
+    "memory": {"type": "integer", "minimum": 16, "maximum": 8192},
+    "timeout": {"type": "string"},
+    "health": {"type": "string"},
+    "triggers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": {"type": "string"},
+          "path": {"type": "string"},
+          "strip_prefix": {"type": "boolean"},
+          "spa": {"type": "boolean"}
+        }
+      }
+    },
+    "env": {
+      "type": "object",
+      "additionalProperties": {"type": "string"}
+    },
+    "volumes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "mount"],
+        "properties": {
+          "name": {"type": "string"},
+          "mount": {"type": "string"},
+          "read_only": {"type": "boolean"}
+        }
+      }
+    },
+    "build": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "command": {"type": "array", "items": {"type": "string"}},
+        "output": {"type": "string"}
+      }
+    },
+    "release": {"type": "array", "items": {"type": "string"}}
+  }
+}
