@@ -135,7 +135,7 @@ Prefer `lf check .` before the first `lf up` / deploy to prove host recipes + im
 
 On a `stack.yaml`, `lf build` and `lf watch` hash each service directory and leave unchanged containers up. A root lockfile change (`go.sum`, `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, `poetry.lock`, `uv.lock`, and a few others) rebuilds every service. `lf build --force` ignores the hash cache (`.litefaas/service-hashes.json`).
 
-Prefer `lf watch .` after the first deploy — it debounces file changes, runs `lf build` → `lf deploy`, and prints the same deploy summary (Docker image cutover, **not** framework HMR; see [vs Netlify / Vercel](docs/vs-netlify-vercel.md)). Or re-run `lf build && lf deploy` manually. Deploy also applies `_redirects` / `netlify.toml` / `vercel.json` edge rules when present. After deploy, `lf url [name|path]` prints the primary edge (or invoke) URL; `lf url --draft` prints `/--draft/<name>/` (single-node alias); `lf open` opens it in your browser (skips browser for invoke-only functions). `lf delete hello` removes the resource and stops the container. `lf up --check` runs the same preflight on `.` and fails closed before starting/reusing litefaasd.
+Prefer `lf watch .` after the first deploy — it debounces file changes, runs `lf build` → `lf deploy`, and prints the same deploy summary (Docker image cutover, **not** framework HMR; see [vs Netlify / Vercel](docs/vs-netlify-vercel.md)). Or re-run `lf build && lf deploy` manually. Deploy also applies `_redirects` / `netlify.toml` / `vercel.json` edge rules when present. `lf status` prints each resource's name, latest deployed prod revision, primary URL, and whether the draft container is up (`--json` for the same fields; it does not start containers). After deploy, `lf url [name|path]` prints the primary edge (or invoke) URL; `lf url --draft` prints `/--draft/<name>/` (single-node alias); `lf open` opens it in your browser (skips browser for invoke-only functions). `lf delete hello` removes the resource and stops the container. `lf up --check` runs the same preflight on `.` and fails closed before starting/reusing litefaasd.
 
 ## Java and Python (Phase 3)
 
@@ -436,6 +436,7 @@ Base path `/v1`. State is sqlite under `--data-dir` (file `litefaas.db`; default
 | DELETE | `/v1/secrets/{name}` | Delete secret |
 | POST | `/v1/invoke/{name}` | Sync invoke (kind=function; wakes if idle-stopped) |
 | GET | `/v1/functions/{name}/logs` | Log tail (`follow`, `tail` query params) |
+| GET | `/v1/functions/{name}/draft` | Whether `litefaas-<name>-draft` is up (inspect only; does not start it) |
 | GET | `/v1/metrics` | Basic counters |
 | GET | `/v1/routes` | Edge routes (override, or derived from triggers) |
 | PUT | `/v1/routes` | Replace the persisted route table |

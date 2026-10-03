@@ -88,6 +88,7 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("DELETE /v1/functions/{name}", s.auth(s.handleDelete))
 	s.mux.HandleFunc("POST /v1/functions/{name}/deploy", s.auth(s.handleDeploy))
 	s.mux.HandleFunc("GET /v1/functions/{name}/revisions", s.auth(s.handleListRevisions))
+	s.mux.HandleFunc("GET /v1/functions/{name}/draft", s.auth(s.handleDraftStatus))
 	s.mux.HandleFunc("POST /v1/functions/{name}/revisions/{id}/pin", s.auth(s.handlePinRevision))
 	s.mux.HandleFunc("DELETE /v1/functions/{name}/revisions/{id}/pin", s.auth(s.handleUnpinRevision))
 	s.mux.HandleFunc("POST /v1/functions/{name}/rollback", s.auth(s.handleRollback))

@@ -55,6 +55,8 @@ func run(args []string) error {
 		return cmdInvoke(args[1:])
 	case "list":
 		return cmdList(args[1:])
+	case "status":
+		return cmdStatus(args[1:])
 	case "delete":
 		return cmdDelete(args[1:])
 	case "context":
@@ -101,6 +103,7 @@ Usage:
   lf rollback <name> [--id N] [--env NAME]  Redeploy a retained image (does not undo migrations or volumes)
   lf invoke <name> [-d BODY] POST /v1/invoke/{name}
   lf list                    List resources
+  lf status [name|path] [--json]  Name, prod revision, primary URL, draft container up/down
   lf delete <name> [--prune-volumes]  Delete resource (opt-in volume prune)
   lf logs [name|path] [-f]   Stream container logs (multi-service merges; or --daemon)
   lf routes                  List the edge route table (GET /v1/routes)
