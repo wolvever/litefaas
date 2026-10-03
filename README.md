@@ -350,7 +350,7 @@ API: `PUT/GET/DELETE /v1/secrets/{name}`, `GET /v1/secrets` (names only).
 
 ### Redirects / headers
 
-If the project root has `_redirects`, a thin `netlify.toml` (`[[redirects]]` / `[[headers]]`), and/or `vercel.json` (redirects/rewrites/headers/`routes`, optional `cleanUrls`), `lf deploy` uploads them as gateway **edge rules** (301/302/… redirects, 200 rewrites, response headers). Plugins/functions/build/middleware are ignored; see [vs Netlify / Vercel](docs/vs-netlify-vercel.md). `lf detect` mentions the counts; `lf routes` lists them.
+If the project root has `_redirects`, a thin `netlify.toml` (`[[redirects]]` / `[[headers]]`), and/or `vercel.json` (redirects/rewrites/headers/`routes`, optional `cleanUrls`), `lf deploy` uploads them as gateway **edge rules** (301/302/… redirects, 200 rewrites, response headers). Rules are stored per project (the resource name, or service names joined with `+`). Deploying a second project on the same gateway replaces only that project's rules. A JSON array `PUT /v1/edge-rules` still replaces the whole table. Plugins/functions/build/middleware are ignored; see [vs Netlify / Vercel](docs/vs-netlify-vercel.md). `lf detect` mentions the counts; `lf routes` lists them (including the project id).
 
 
 ## TLS / HTTPS

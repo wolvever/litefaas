@@ -115,3 +115,60 @@ func TestDraftEdgeProxy(t *testing.T) {
 		t.Fatalf("backend path=%q", gotPath)
 	}
 }
+
+func TestEdgeRulesProjectScopeDoesNotClobber(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	srv := New(Options{Store: st, Token: "s", Runner: runner.NewFake()})
+
+	put := func(body string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPut, "/v1/edge-rules", bytes.NewReader([]byte(body)))
+		req.Header.Set("Authorization", "Bearer s")
+		rec := httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != 200 {
+			t.Fatalf("put=%d %s", rec.Code, rec.Body.String())
+		}
+	}
+	put(`{"project":"alpha","rules":[{"from":"/old","to":"/a","status":301},{"from":"/*","status":0,"headers":{"X-Frame-Options":"DENY"}}]}`)
+	put(`{"project":"beta","rules":[{"from":"/other","to":"/b","status":302},{"from":"/*","status":0,"headers":{"X-Frame-Options":"SAMEORIGIN"}}]}`)
+
+	req := httptest.NewRequest(http.MethodGet, "/old", nil)
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != 301 || rec.Header().Get("Location") != "/a" {
+		t.Fatalf("A redirect clobbered: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+	if rec.Header().Get("X-Frame-Options") != "DENY" {
+		t.Fatalf("A header clobbered: %q", rec.Header().Get("X-Frame-Options"))
+	}
+
+	put(`{"project":"alpha","rules":[{"from":"/old","to":"/a2","status":301}]}`)
+	req = httptest.NewRequest(http.MethodGet, "/other", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != 302 || rec.Header().Get("Location") != "/b" {
+		t.Fatalf("B lost after A update: %d %q", rec.Code, rec.Header().Get("Location"))
+	}
+
+	req = httptest.NewRequest(http.MethodGet, "/v1/edge-rules", nil)
+	req.Header.Set("Authorization", "Bearer s")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != 200 || !bytes.Contains(rec.Body.Bytes(), []byte(`"project":"beta"`)) || !bytes.Contains(rec.Body.Bytes(), []byte(`"/a2"`)) {
+		t.Fatalf("list=%s", rec.Body.String())
+	}
+
+	// Legacy array replaces the whole table.
+	put(`[{"from":"/only","to":"/one","status":301}]`)
+	req = httptest.NewRequest(http.MethodGet, "/other", nil)
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code == 302 {
+		t.Fatal("legacy PUT should have replaced project B")
+	}
+}

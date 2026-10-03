@@ -204,3 +204,54 @@ func TestRevisionSnapshotPinAndPrune(t *testing.T) {
 	reopen := list
 	_ = reopen
 }
+
+func TestEdgeRulesProjectScope(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+
+	// Legacy array row (pre-project document).
+	now := "2026-01-01T00:00:00Z"
+	legacy := `[{"from":"/old","to":"/legacy","status":301}]`
+	if _, err := s.db.Exec(`INSERT INTO edge_rules (id, spec_json, updated_at) VALUES (1, ?, ?)`, legacy, now); err != nil {
+		t.Fatal(err)
+	}
+	got, ok, err := s.GetEdgeRules()
+	if err != nil || !ok || len(got) != 1 || got[0].To != "/legacy" || got[0].Project != "" {
+		t.Fatalf("legacy got=%+v ok=%v err=%v", got, ok, err)
+	}
+
+	// First scoped write replaces the sole legacy bucket.
+	if err := s.SetProjectEdgeRules("web", []EdgeRuleSpec{{From: "/a", To: "/a2", Status: 301}}); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err = s.GetEdgeRules()
+	if err != nil || len(got) != 1 || got[0].Project != "web" || got[0].From != "/a" {
+		t.Fatalf("upgraded %+v %v", got, err)
+	}
+
+	if err := s.SetProjectEdgeRules("api", []EdgeRuleSpec{{From: "/b", To: "/b2", Status: 302}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProjectEdgeRules("web", []EdgeRuleSpec{{From: "/a", To: "/a3", Status: 301}}); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err = s.GetEdgeRules()
+	if err != nil || len(got) != 2 {
+		t.Fatalf("merged %+v %v", got, err)
+	}
+	if got[0].Project != "web" || got[0].To != "/a3" || got[1].Project != "api" || got[1].From != "/b" {
+		t.Fatalf("order/update %+v", got)
+	}
+
+	// Bare replace wipes named projects.
+	if err := s.SetEdgeRules([]EdgeRuleSpec{{From: "/z", To: "/z", Status: 301}}); err != nil {
+		t.Fatal(err)
+	}
+	got, _, err = s.GetEdgeRules()
+	if err != nil || len(got) != 1 || got[0].Project != "" || got[0].From != "/z" {
+		t.Fatalf("wiped %+v %v", got, err)
+	}
+}

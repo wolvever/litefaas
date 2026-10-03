@@ -28,6 +28,7 @@ Global frontend DX: CDN edge, git-OAuth previews, team billing, managed platform
 - Install UX (`install.sh` + release binaries) and `make demo`
 - Local rebuild loop (`lf watch`) — debounce → Docker build → API deploy cutover (Netlify Dev-feel; **not** framework HMR inside the container, and **not** `netlify watch` waiting on remote CDN deploys)
 - `_redirects` + thin `netlify.toml` `[[redirects]]` / `[[headers]]` + `vercel.json` redirects/rewrites/headers/`routes` → gateway edge rules (data, not SaaS; force/`Role`/`Query`/middleware skipped)
+- Edge rules are scoped by project id (resource names). One gateway can hold two projects without the second deploy erasing the first. The daemon stores the id; it does not infer it.
 - Path placeholders: trailing `/*` + `:splat`, `:param` segments, mixed `/shop/:cat/*`, cheap `(.*)`/`$1` → splat; optional Vercel `cleanUrls` → single-segment `/:page.html` → `/:page`
 
 ## Explicit non-goals (core)

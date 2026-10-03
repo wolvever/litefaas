@@ -140,6 +140,26 @@ func (c *Client) ClearEdgeRules() error {
 	return c.do(http.MethodDelete, "/v1/edge-rules", nil, nil)
 }
 
+// PutProjectEdgeRules replaces rules for one project and returns the merged table.
+// A bare PutEdgeRules still replaces every project.
+func (c *Client) PutProjectEdgeRules(project string, rules []proxy.EdgeRule) ([]proxy.EdgeRule, error) {
+	if rules == nil {
+		rules = []proxy.EdgeRule{}
+	}
+	body := struct {
+		Project string           `json:"project"`
+		Rules   []proxy.EdgeRule `json:"rules"`
+	}{Project: project, Rules: rules}
+	var out []proxy.EdgeRule
+	if err := c.do(http.MethodPut, "/v1/edge-rules", body, &out); err != nil {
+		return nil, err
+	}
+	if out == nil {
+		out = []proxy.EdgeRule{}
+	}
+	return out, nil
+}
+
 type SecretRef struct {
 	Name string `json:"name"`
 	Env  string `json:"env,omitempty"`

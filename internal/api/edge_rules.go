@@ -1,15 +1,20 @@
 package api
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 
 	"github.com/wolvever/litefaas/internal/proxy"
 	"github.com/wolvever/litefaas/internal/store"
 )
+
+// projectIDRE is one resource name, or several joined by '+'.
+var projectIDRE = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}(\+[A-Za-z0-9][A-Za-z0-9._-]{0,63})*$`)
 
 func (s *Server) handleEdgeRules(w http.ResponseWriter, r *http.Request) {
 	rules, err := s.loadEdgeRules()
@@ -28,11 +33,64 @@ func (s *Server) handlePutEdgeRules(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusServiceUnavailable, errorBody{Error: "store not configured"})
 		return
 	}
-	var in []proxy.EdgeRule
-	if err := json.NewDecoder(io.LimitReader(r.Body, 1<<20)).Decode(&in); err != nil {
-		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid json: " + err.Error()})
+	raw, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid body"})
 		return
 	}
+	trim := bytes.TrimSpace(raw)
+	if len(trim) == 0 {
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid json: empty body"})
+		return
+	}
+	switch trim[0] {
+	case '[':
+		// Legacy single-project replace of the whole table.
+		var in []proxy.EdgeRule
+		if err := json.Unmarshal(trim, &in); err != nil {
+			writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid json: " + err.Error()})
+			return
+		}
+		specs, err := normalizeEdgeRules(in)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
+			return
+		}
+		if err := s.store.SetEdgeRules(specs); err != nil {
+			writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+			return
+		}
+	case '{':
+		var in struct {
+			Project string           `json:"project"`
+			Rules   []proxy.EdgeRule `json:"rules"`
+		}
+		if err := json.Unmarshal(trim, &in); err != nil {
+			writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid json: " + err.Error()})
+			return
+		}
+		project := strings.TrimSpace(in.Project)
+		if !projectIDRE.MatchString(project) || len(project) > 512 {
+			writeJSON(w, http.StatusBadRequest, errorBody{Error: "project id is required (resource names joined by +)"})
+			return
+		}
+		specs, err := normalizeEdgeRules(in.Rules)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
+			return
+		}
+		if err := s.store.SetProjectEdgeRules(project, specs); err != nil {
+			writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
+			return
+		}
+	default:
+		writeJSON(w, http.StatusBadRequest, errorBody{Error: "invalid json: want array or {project,rules}"})
+		return
+	}
+	s.handleEdgeRules(w, r)
+}
+
+func normalizeEdgeRules(in []proxy.EdgeRule) ([]store.EdgeRuleSpec, error) {
 	if in == nil {
 		in = []proxy.EdgeRule{}
 	}
@@ -40,23 +98,19 @@ func (s *Server) handlePutEdgeRules(w http.ResponseWriter, r *http.Request) {
 	for i, rule := range in {
 		from := strings.TrimSpace(rule.From)
 		if from == "" {
-			writeJSON(w, http.StatusBadRequest, errorBody{Error: fmt.Sprintf("edge_rules[%d]: from is required", i)})
-			return
+			return nil, fmt.Errorf("edge_rules[%d]: from is required", i)
 		}
 		if !strings.HasPrefix(from, "/") {
-			writeJSON(w, http.StatusBadRequest, errorBody{Error: fmt.Sprintf("edge_rules[%d]: from must start with /", i)})
-			return
+			return nil, fmt.Errorf("edge_rules[%d]: from must start with /", i)
 		}
 		if rule.Status != 0 {
 			switch rule.Status {
 			case 200, 301, 302, 303, 307, 308:
 			default:
-				writeJSON(w, http.StatusBadRequest, errorBody{Error: fmt.Sprintf("edge_rules[%d]: unsupported status %d", i, rule.Status)})
-				return
+				return nil, fmt.Errorf("edge_rules[%d]: unsupported status %d", i, rule.Status)
 			}
 			if strings.TrimSpace(rule.To) == "" {
-				writeJSON(w, http.StatusBadRequest, errorBody{Error: fmt.Sprintf("edge_rules[%d]: to is required for status %d", i, rule.Status)})
-				return
+				return nil, fmt.Errorf("edge_rules[%d]: to is required for status %d", i, rule.Status)
 			}
 		}
 		specs = append(specs, store.EdgeRuleSpec{
@@ -68,11 +122,7 @@ func (s *Server) handlePutEdgeRules(w http.ResponseWriter, r *http.Request) {
 			Source:  rule.Source,
 		})
 	}
-	if err := s.store.SetEdgeRules(specs); err != nil {
-		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
-		return
-	}
-	s.handleEdgeRules(w, r)
+	return specs, nil
 }
 
 func (s *Server) handleClearEdgeRules(w http.ResponseWriter, r *http.Request) {
@@ -104,6 +154,7 @@ func (s *Server) loadEdgeRules() ([]proxy.EdgeRule, error) {
 			Headers: sp.Headers,
 			Force:   sp.Force,
 			Source:  sp.Source,
+			Project: sp.Project,
 		})
 	}
 	return out, nil
