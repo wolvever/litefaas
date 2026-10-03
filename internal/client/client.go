@@ -376,6 +376,22 @@ func (c *Client) DeployWith(name string, opt DeployOptions) (DeployResult, error
 	return out, nil
 }
 
+// DraftStatus reports whether the draft container is up. It does not start one.
+func (c *Client) DraftStatus(name string) (DraftStatus, error) {
+	var out DraftStatus
+	if err := c.do(http.MethodGet, "/v1/functions/"+url.PathEscape(name)+"/draft", nil, &out); err != nil {
+		return DraftStatus{}, err
+	}
+	return out, nil
+}
+
+// DraftStatus is the GET /v1/functions/{name}/draft body.
+type DraftStatus struct {
+	Name      string `json:"name"`
+	Up        bool   `json:"up"`
+	Container string `json:"container"`
+}
+
 func (c *Client) Revisions(name string) ([]types.Revision, error) {
 	var out []types.Revision
 	if err := c.do(http.MethodGet, "/v1/functions/"+url.PathEscape(name)+"/revisions", nil, &out); err != nil {
