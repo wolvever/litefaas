@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/wolvever/litefaas/internal/dirty"
 	"github.com/wolvever/litefaas/internal/dockercli"
 	"github.com/wolvever/litefaas/internal/manifest"
 	"github.com/wolvever/litefaas/internal/scaffold"
@@ -22,6 +23,8 @@ type Result struct {
 	Stack    string
 	Detected bool
 	Hints    string
+	Skipped  bool // dirty-service: container left as-is
+	Name     string
 }
 
 func Build(ctx context.Context, dir string, stdout, stderr io.Writer) (Result, error) {
@@ -133,4 +136,69 @@ func materialize(root string, m *manifest.Manifest, pack *stackpack.Pack) error 
 		return fmt.Errorf("no Dockerfile in %s and runtime %s has no built-in template: %w", root, m.Runtime, err)
 	}
 	return nil
+}
+
+// ProjectOptions controls stack builds.
+type ProjectOptions struct {
+	StackID string
+	// Dirty skips unchanged stack.yaml services (lf build / lf watch).
+	Dirty bool
+	// Force rebuilds every service even when hashes match.
+	Force bool
+}
+
+// BuildProject builds one service, or a stack. When Dirty is set and the
+// project is a stack.yaml, unchanged services are skipped and their containers
+// are left for the caller to leave up. A root lockfile change rebuilds all.
+func BuildProject(ctx context.Context, dir string, opts ProjectOptions, stdout, stderr io.Writer) ([]Result, error) {
+	res, err := manifest.ResolveDetect(dir, opts.StackID)
+	if err != nil {
+		return nil, err
+	}
+	if res.Multi == nil || !opts.Dirty {
+		return BuildStackWith(ctx, dir, opts.StackID, stdout, stderr)
+	}
+	root := res.Root
+	path := dirty.StatePath(root)
+	state, err := dirty.Load(path)
+	if err != nil {
+		return nil, err
+	}
+	var svcs []dirty.Service
+	for i := range res.Multi.Services {
+		svc := &res.Multi.Services[i]
+		svcs = append(svcs, dirty.Service{Name: svc.Name, Dir: manifest.ServiceDir(root, svc)})
+	}
+	rebuild, next, err := dirty.Plan(root, state, svcs)
+	if err != nil {
+		return nil, err
+	}
+	var out []Result
+	for i := range res.Multi.Services {
+		svc := &res.Multi.Services[i]
+		ctxDir := manifest.ServiceDir(root, svc)
+		if !opts.Force && !rebuild[svc.Name] {
+			out = append(out, Result{
+				Image: svc.Image, Context: ctxDir, Stack: svc.Stack, Name: svc.Name, Skipped: true,
+			})
+			continue
+		}
+		one, err := buildOne(ctx, &manifest.Resolution{Root: ctxDir, Manifest: svc}, stdout, stderr)
+		if err != nil {
+			return out, fmt.Errorf("service %s: %w", svc.Name, err)
+		}
+		one.Name = svc.Name
+		out = append(out, one)
+		if state.Services == nil {
+			state.Services = map[string]string{}
+		}
+		state.Services[svc.Name] = next.Services[svc.Name]
+	}
+	// Persist only after every selected service built, so a later failure
+	// does not mark an undeployed image as clean.
+	state.Lock = next.Lock
+	if err := dirty.Save(path, state); err != nil {
+		return out, err
+	}
+	return out, nil
 }
