@@ -229,7 +229,7 @@ func runWatch(opts watchOptions, stdout, stderr io.Writer) error {
 // runBuildDeploy builds then deploys in-process (shared by lf watch).
 func runBuildDeploy(ctx context.Context, dir, stackID string, c *client.Client, stdout, stderr io.Writer) error {
 	fmt.Fprintf(stderr, "building %s\n", dir)
-	results, err := builder.BuildStackWith(ctx, dir, stackID, stdout, stderr)
+	results, err := builder.BuildProject(ctx, dir, builder.ProjectOptions{StackID: stackID, Dirty: true}, stdout, stderr)
 	if err != nil {
 		return err
 	}
@@ -242,6 +242,10 @@ func runBuildDeploy(ctx context.Context, dir, stackID string, c *client.Client, 
 		} else if res.Stack != "" && stackID != "" {
 			fmt.Fprintf(stderr, "stack=%s\n", res.Stack)
 		}
+		if res.Skipped {
+			fmt.Fprintf(stdout, "unchanged %s (left running)\n", res.Image)
+			continue
+		}
 		fmt.Fprintf(stdout, "built %s\n", res.Image)
 	}
 
@@ -249,15 +253,29 @@ func runBuildDeploy(ctx context.Context, dir, stackID string, c *client.Client, 
 	if err != nil {
 		return err
 	}
+	skipped := map[string]bool{}
+	for _, res := range results {
+		if res.Skipped && res.Name != "" {
+			skipped[res.Name] = true
+		}
+	}
 	if resolved.Multi != nil {
 		n := 0
 		for i := range resolved.Multi.Services {
+			name := resolved.Multi.Services[i].Name
+			if skipped[name] {
+				continue
+			}
 			svc := resolved.Multi.Services[i].Resource()
 			svc.Release = release.Commands(resolved.Multi.Services[i].Release, packReleaseList(resolved.Multi.Services[i].Stack, nil))
 			if err := deployResource(c, svc, resolved.Multi.Services[i].Stack, "", false); err != nil {
 				return err
 			}
 			n++
+		}
+		if n == 0 {
+			fmt.Fprintf(stdout, "no services changed\n")
+			return nil
 		}
 		fmt.Fprintf(stdout, "deployed %d services → gateway %s\n", n, c.Gateway)
 		return nil

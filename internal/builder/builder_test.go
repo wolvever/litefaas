@@ -336,3 +336,66 @@ func TestBuildKeepsExistingDockerfile(t *testing.T) {
 		t.Fatalf("Dockerfile overwritten: %s", raw)
 	}
 }
+
+func TestDirtyStackSkipsUnchangedService(t *testing.T) {
+	dir := t.TempDir()
+	for _, name := range []string{"api", "web"} {
+		sub := filepath.Join(dir, name)
+		if err := os.MkdirAll(sub, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(sub, "Dockerfile"), []byte("FROM scratch\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	raw := "services:\n  api:\n    kind: backend\n    runtime: dockerfile\n    handler: ./api\n    image: api:latest\n  web:\n    kind: frontend\n    runtime: dockerfile\n    handler: ./web\n    image: web:latest\n"
+	if err := os.WriteFile(filepath.Join(dir, "stack.yaml"), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	origExec, origOut := dockercli.Exec, dockercli.Output
+	t.Cleanup(func() { dockercli.Exec = origExec; dockercli.Output = origOut })
+	var builds []string
+	dockercli.Output = func(context.Context, string, ...string) (string, error) { return "27.0.0", nil }
+	dockercli.Exec = func(_ context.Context, _, _ io.Writer, _ string, args ...string) error {
+		builds = append(builds, strings.Join(args, " "))
+		return nil
+	}
+	opts := ProjectOptions{Dirty: true}
+	if _, err := BuildProject(context.Background(), dir, opts, io.Discard, io.Discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(builds) != 2 {
+		t.Fatalf("first builds=%d %v", len(builds), builds)
+	}
+	builds = nil
+	out, err := BuildProject(context.Background(), dir, opts, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(builds) != 0 {
+		t.Fatalf("second builds=%v", builds)
+	}
+	for _, r := range out {
+		if !r.Skipped {
+			t.Fatalf("expected skip: %+v", r)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(dir, "api", "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, err = BuildProject(context.Background(), dir, opts, io.Discard, io.Discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(builds) != 1 || !strings.Contains(builds[0], "api:latest") {
+		t.Fatalf("partial builds=%v", builds)
+	}
+	for _, r := range out {
+		if r.Name == "web" && !r.Skipped {
+			t.Fatal("web should stay up")
+		}
+		if r.Name == "api" && r.Skipped {
+			t.Fatal("api should rebuild")
+		}
+	}
+}
