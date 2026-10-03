@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/wolvever/litefaas/internal/dockercli"
+	"github.com/wolvever/litefaas/internal/release"
 	"github.com/wolvever/litefaas/internal/types"
 )
 
@@ -84,6 +85,13 @@ func (d *Docker) Deploy(ctx context.Context, res types.Resource) (Result, error)
 	_ = d.rmContainer(ctx, cand)
 	if err := d.ensureVolumes(ctx, res); err != nil {
 		return Result{}, err
+	}
+	// Release runs before the candidate container so a failure leaves the live version up
+	// and does not hold the volume lock. Rollbacks pass an empty Release list.
+	if len(res.Release) > 0 {
+		if err := release.Run(ctx, res); err != nil {
+			return Result{}, err
+		}
 	}
 	restart := "unless-stopped"
 	if !types.AlwaysOn(res.Kind) {

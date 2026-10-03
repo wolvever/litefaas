@@ -18,6 +18,7 @@ import (
 	"github.com/wolvever/litefaas/internal/builder"
 	"github.com/wolvever/litefaas/internal/client"
 	"github.com/wolvever/litefaas/internal/manifest"
+	"github.com/wolvever/litefaas/internal/release"
 )
 
 // stringList is a repeatable flag.Value for --ignore.
@@ -251,7 +252,9 @@ func runBuildDeploy(ctx context.Context, dir, stackID string, c *client.Client, 
 	if resolved.Multi != nil {
 		n := 0
 		for i := range resolved.Multi.Services {
-			if err := deployResource(c, resolved.Multi.Services[i].Resource(), resolved.Multi.Services[i].Stack, "", false); err != nil {
+			svc := resolved.Multi.Services[i].Resource()
+			svc.Release = release.Commands(resolved.Multi.Services[i].Release, packReleaseList(resolved.Multi.Services[i].Stack, nil))
+			if err := deployResource(c, svc, resolved.Multi.Services[i].Stack, "", false); err != nil {
 				return err
 			}
 			n++
@@ -271,7 +274,13 @@ func runBuildDeploy(ctx context.Context, dir, stackID string, c *client.Client, 
 	} else if resolved.Manifest != nil {
 		packID = resolved.Manifest.Stack
 	}
-	return deployResource(c, resolved.Manifest.Resource(), packID, "", false)
+	svc := resolved.Manifest.Resource()
+	var packRelease []string
+	if resolved.Pack != nil {
+		packRelease = resolved.Pack.Release
+	}
+	svc.Release = release.Commands(resolved.Manifest.Release, packRelease)
+	return deployResource(c, svc, packID, "", false)
 }
 
 // shouldWatchNewDir reports whether a Create event path should get watcher.Add.

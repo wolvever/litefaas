@@ -31,6 +31,8 @@ type Manifest struct {
 	Env      map[string]string   `yaml:"env,omitempty"`
 	Volumes  []types.VolumeMount `yaml:"volumes,omitempty"`
 	Build    *types.Build        `yaml:"build,omitempty"`
+	// Release commands run in the candidate image before cutover (idempotent; not auto-migrate).
+	Release []string `yaml:"release,omitempty"`
 }
 
 func Load(path string) (*Manifest, error) {
@@ -135,6 +137,7 @@ func (m *Manifest) Resource() types.Resource {
 		Env:      m.Env,
 		Volumes:  m.Volumes,
 		Build:    m.Build,
+		Release:  append([]string(nil), m.Release...),
 	}
 }
 

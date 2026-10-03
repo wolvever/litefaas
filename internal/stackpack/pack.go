@@ -31,6 +31,8 @@ type Pack struct {
 	Hints       Hints     `yaml:"hints,omitempty"`
 	Host        Host      `yaml:"host,omitempty"`
 	Verify      Verify    `yaml:"verify,omitempty"`
+	// Release is optional idempotent commands. Packs must not ship a framework migrate by default.
+	Release []string `yaml:"release,omitempty"`
 
 	Dockerfile   []byte `yaml:"-"`
 	Dockerignore []byte `yaml:"-"`

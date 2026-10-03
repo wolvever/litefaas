@@ -92,7 +92,7 @@ Usage:
   lf init <name> --runtime go|java|python|node|dockerfile|static [--preset ...] [--kind function|backend|frontend]
   lf detect [path] [--stack ID] [--json]  Print stack/pack plan without building
   lf build [path] [--stack ID] [--plan] [--json]  docker build (or --plan dry-run)
-  lf deploy [path] [--stack ID] [--env NAME] [--inject-env]  Register + deploy (secret bag; optional inject)
+  lf deploy [path] [--stack ID] [--env NAME] [--inject-env]  Register + deploy (optional release: before cutover)
   lf revisions [name|path]   List deploy revisions (image id, pack, env refs are server-side)
   lf revisions pin|unpin NAME ID  Keep a revision past the 5-row cap
   lf rollback <name> [--id N] [--env NAME]  Redeploy a retained image (does not undo migrations or volumes)

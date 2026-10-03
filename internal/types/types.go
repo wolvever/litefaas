@@ -91,22 +91,25 @@ type Build struct {
 
 // Resource is control-plane metadata for a function, backend, or frontend.
 type Resource struct {
-	Name      string            `json:"name"`
-	Kind      Kind              `json:"kind"`
-	Runtime   Runtime           `json:"runtime"`
-	Preset    string            `json:"preset,omitempty"`
-	Handler   string            `json:"handler,omitempty"`
-	Image     string            `json:"image,omitempty"`
-	Port      int               `json:"port,omitempty"`
-	Memory    int               `json:"memory,omitempty"`
-	Timeout   string            `json:"timeout,omitempty"`
-	Health    string            `json:"health,omitempty"`
-	Triggers  []Trigger         `json:"triggers,omitempty"`
-	Env       map[string]string `json:"env,omitempty"`
-	Volumes   []VolumeMount     `json:"volumes,omitempty"`
-	Build     *Build            `json:"build,omitempty"`
-	CreatedAt time.Time         `json:"created_at"`
-	UpdatedAt time.Time         `json:"updated_at"`
+	Name     string            `json:"name"`
+	Kind     Kind              `json:"kind"`
+	Runtime  Runtime           `json:"runtime"`
+	Preset   string            `json:"preset,omitempty"`
+	Handler  string            `json:"handler,omitempty"`
+	Image    string            `json:"image,omitempty"`
+	Port     int               `json:"port,omitempty"`
+	Memory   int               `json:"memory,omitempty"`
+	Timeout  string            `json:"timeout,omitempty"`
+	Health   string            `json:"health,omitempty"`
+	Triggers []Trigger         `json:"triggers,omitempty"`
+	Env      map[string]string `json:"env,omitempty"`
+	Volumes  []VolumeMount     `json:"volumes,omitempty"`
+	Build    *Build            `json:"build,omitempty"`
+	// Release is an optional list of idempotent commands run in the candidate
+	// image before cutover. Rollback clears this so they are not repeated.
+	Release   []string  `json:"release,omitempty"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // VolumeMount is a named Docker volume mounted into the container.
