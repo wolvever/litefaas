@@ -10,7 +10,6 @@ import (
 	"github.com/wolvever/litefaas/internal/client"
 	"github.com/wolvever/litefaas/internal/manifest"
 	"github.com/wolvever/litefaas/internal/netlifycompat"
-	"github.com/wolvever/litefaas/internal/proxy"
 	"github.com/wolvever/litefaas/internal/release"
 	"github.com/wolvever/litefaas/internal/stackpack"
 	"github.com/wolvever/litefaas/internal/types"
@@ -53,7 +52,11 @@ func cmdDeploy(args []string) error {
 			n++
 		}
 		fmt.Printf("deployed %d services → gateway %s\n", n, c.Gateway)
-		return applyProjectEdgeRules(c, dir)
+		names := make([]string, 0, len(res.Multi.Services))
+		for i := range res.Multi.Services {
+			names = append(names, res.Multi.Services[i].Resource().Name)
+		}
+		return applyProjectEdgeRules(c, dir, names)
 	}
 	if res.Detected && res.Pack != nil {
 		fmt.Printf("detected stack=%s\n", res.Pack.ID)
@@ -76,7 +79,7 @@ func cmdDeploy(args []string) error {
 	if err := deployResource(c, svc, packID, *secEnv, *injectEnv, *draft); err != nil {
 		return err
 	}
-	return applyProjectEdgeRules(c, dir)
+	return applyProjectEdgeRules(c, dir, []string{svc.Name})
 }
 
 func deployResource(c *client.Client, res types.Resource, packID, secEnv string, inject bool, draft bool) error {
@@ -122,30 +125,35 @@ func deployResource(c *client.Client, res types.Resource, packID, secEnv string,
 	return nil
 }
 
-func applyProjectEdgeRules(c *client.Client, dir string) error {
+func applyProjectEdgeRules(c *client.Client, dir string, names []string) error {
 	rules, err := netlifycompat.LoadProject(dir)
 	if err != nil {
 		return err
 	}
 	if len(rules) == 0 {
+		// Same as before: missing redirect files do not clear the gateway table.
 		return nil
 	}
 	rules = netlifycompat.MergeByFrom(rules)
-	out := make([]proxy.EdgeRule, len(rules))
-	copy(out, rules)
-	got, err := c.PutEdgeRules(out)
+	project, err := manifest.ProjectID(names)
 	if err != nil {
+		return err
+	}
+	for i := range rules {
+		rules[i].Project = project
+	}
+	if _, err := c.PutProjectEdgeRules(project, rules); err != nil {
 		return fmt.Errorf("edge rules: %w", err)
 	}
 	nRedir, nHdr := 0, 0
-	for _, r := range got {
+	for _, r := range rules {
 		if r.Status == 0 {
 			nHdr++
 		} else {
 			nRedir++
 		}
 	}
-	fmt.Printf("edge rules: %d redirect/rewrite, %d header (from _redirects / netlify.toml / vercel.json)\n", nRedir, nHdr)
+	fmt.Printf("edge rules: %d redirect/rewrite, %d header (project %s)\n", nRedir, nHdr, project)
 	return nil
 }
 

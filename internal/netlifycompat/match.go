@@ -43,8 +43,12 @@ func MatchPath(path string, rules []EdgeRule) (MatchResult, bool) {
 }
 
 // MatchHeaders returns merged headers from all matching header-only rules.
+// Within one project (or the legacy unscoped bucket), a later rule overrides
+// the same header key. A different non-empty project does not overwrite a key
+// already set, so deploying project B cannot clobber project A's headers.
 func MatchHeaders(path string, rules []EdgeRule) map[string]string {
 	var out map[string]string
+	owner := map[string]string{}
 	for _, r := range rules {
 		if r.Status != 0 || len(r.Headers) == 0 {
 			continue
@@ -57,7 +61,13 @@ func MatchHeaders(path string, rules []EdgeRule) map[string]string {
 			out = map[string]string{}
 		}
 		for k, v := range r.Headers {
+			if prev, exists := owner[k]; exists && r.Project != "" && prev != "" && prev != r.Project {
+				continue
+			}
 			out[k] = v
+			if r.Project != "" {
+				owner[k] = r.Project
+			}
 		}
 	}
 	return out

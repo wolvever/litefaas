@@ -14,8 +14,10 @@ type EdgeRule struct {
 	To      string            `json:"to,omitempty"`
 	Status  int               `json:"status,omitempty"` // 0 = headers-only; 200 = rewrite; 3xx = redirect
 	Headers map[string]string `json:"headers,omitempty"`
-	Force   bool              `json:"force,omitempty"` // accepted then ignored in MVP
+	Force   bool              `json:"force,omitempty"`  // accepted then ignored in MVP
 	Source  string            `json:"source,omitempty"` // _redirects|netlify.toml
+	// Project is provenance stamped by the gateway. Empty means the legacy unscoped bucket.
+	Project string `json:"project,omitempty"`
 }
 
 // ParseRedirects parses Netlify _redirects lines: from to [status] [!].

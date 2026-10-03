@@ -53,7 +53,7 @@ func cmdRoutes(args []string) error {
 	}
 	fmt.Println()
 	tw2 := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw2, "EDGE\tFROM\tTO\tSTATUS\tSOURCE")
+	fmt.Fprintln(tw2, "EDGE\tPROJECT\tFROM\tTO\tSTATUS\tSOURCE")
 	for _, r := range rules {
 		kind := "redirect"
 		if r.Status == 0 {
@@ -65,7 +65,11 @@ func cmdRoutes(args []string) error {
 		if r.Status == 0 {
 			to = fmt.Sprintf("%d headers", len(r.Headers))
 		}
-		fmt.Fprintf(tw2, "%s\t%s\t%s\t%d\t%s\n", kind, r.From, to, r.Status, r.Source)
+		project := r.Project
+		if project == "" {
+			project = "-"
+		}
+		fmt.Fprintf(tw2, "%s\t%s\t%s\t%s\t%d\t%s\n", kind, project, r.From, to, r.Status, r.Source)
 	}
 	return tw2.Flush()
 }

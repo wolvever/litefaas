@@ -447,6 +447,7 @@ func isUnique(err error) bool {
 }
 
 // EdgeRuleSpec is a persisted gateway redirect/rewrite/header rule.
+// Project is stamped from the owning bucket on read (empty = legacy unscoped).
 type EdgeRuleSpec struct {
 	From    string            `json:"from"`
 	To      string            `json:"to,omitempty"`
@@ -454,32 +455,145 @@ type EdgeRuleSpec struct {
 	Headers map[string]string `json:"headers,omitempty"`
 	Force   bool              `json:"force,omitempty"`
 	Source  string            `json:"source,omitempty"`
+	Project string            `json:"project,omitempty"`
+}
+
+// edgeProject is one project's rules. ID "" is the legacy unscoped bucket
+// written by a bare-array PUT.
+type edgeProject struct {
+	ID    string         `json:"id"`
+	Rules []EdgeRuleSpec `json:"rules"`
+}
+
+// edgeDoc is the on-disk edge_rules document. Older rows are a raw JSON array.
+type edgeDoc struct {
+	Projects []edgeProject `json:"projects"`
 }
 
 func (s *Store) GetEdgeRules() ([]EdgeRuleSpec, bool, error) {
-	var raw string
-	err := s.db.QueryRow(`SELECT spec_json FROM edge_rules WHERE id = 1`).Scan(&raw)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, false, nil
+	doc, ok, err := s.loadEdgeDoc()
+	if err != nil || !ok {
+		return nil, ok, err
 	}
-	if err != nil {
-		return nil, false, err
-	}
-	var out []EdgeRuleSpec
-	if err := json.Unmarshal([]byte(raw), &out); err != nil {
-		return nil, false, err
-	}
-	if out == nil {
-		out = []EdgeRuleSpec{}
-	}
-	return out, true, nil
+	return flattenEdgeDoc(doc), true, nil
 }
 
+// SetEdgeRules replaces the whole table with one unscoped bucket (legacy PUT).
 func (s *Store) SetEdgeRules(rules []EdgeRuleSpec) error {
 	if rules == nil {
 		rules = []EdgeRuleSpec{}
 	}
-	raw, err := json.Marshal(rules)
+	for i := range rules {
+		rules[i].Project = ""
+	}
+	return s.saveEdgeDoc(edgeDoc{Projects: []edgeProject{{ID: "", Rules: rules}}})
+}
+
+// SetProjectEdgeRules replaces rules for project and leaves every other project.
+// A sole legacy "" bucket is replaced (it was the only project on the gateway).
+// Empty rules drops the project. project must be non-empty.
+func (s *Store) SetProjectEdgeRules(project string, rules []EdgeRuleSpec) error {
+	if strings.TrimSpace(project) == "" {
+		return fmt.Errorf("project id required")
+	}
+	doc, _, err := s.loadEdgeDoc()
+	if err != nil {
+		return err
+	}
+	if rules == nil {
+		rules = []EdgeRuleSpec{}
+	}
+	for i := range rules {
+		rules[i].Project = project
+	}
+	if len(doc.Projects) == 1 && doc.Projects[0].ID == "" {
+		doc.Projects = nil
+	}
+	if len(rules) == 0 {
+		var dst []edgeProject
+		for _, p := range doc.Projects {
+			if p.ID != project {
+				dst = append(dst, p)
+			}
+		}
+		doc.Projects = dst
+		return s.saveEdgeDoc(doc)
+	}
+	for i := range doc.Projects {
+		if doc.Projects[i].ID == project {
+			doc.Projects[i].Rules = rules
+			return s.saveEdgeDoc(doc)
+		}
+	}
+	doc.Projects = append(doc.Projects, edgeProject{ID: project, Rules: rules})
+	return s.saveEdgeDoc(doc)
+}
+
+func (s *Store) ClearEdgeRules() error {
+	_, err := s.db.Exec(`DELETE FROM edge_rules WHERE id = 1`)
+	return err
+}
+
+func (s *Store) loadEdgeDoc() (edgeDoc, bool, error) {
+	var raw string
+	err := s.db.QueryRow(`SELECT spec_json FROM edge_rules WHERE id = 1`).Scan(&raw)
+	if errors.Is(err, sql.ErrNoRows) {
+		return edgeDoc{}, false, nil
+	}
+	if err != nil {
+		return edgeDoc{}, false, err
+	}
+	doc, err := decodeEdgeDoc(raw)
+	if err != nil {
+		return edgeDoc{}, false, err
+	}
+	return doc, true, nil
+}
+
+func decodeEdgeDoc(raw string) (edgeDoc, error) {
+	trim := strings.TrimSpace(raw)
+	if trim == "" {
+		return edgeDoc{}, nil
+	}
+	if trim[0] == '[' {
+		var rules []EdgeRuleSpec
+		if err := json.Unmarshal([]byte(trim), &rules); err != nil {
+			return edgeDoc{}, err
+		}
+		if rules == nil {
+			rules = []EdgeRuleSpec{}
+		}
+		return edgeDoc{Projects: []edgeProject{{ID: "", Rules: rules}}}, nil
+	}
+	var doc edgeDoc
+	if err := json.Unmarshal([]byte(trim), &doc); err != nil {
+		return edgeDoc{}, err
+	}
+	if doc.Projects == nil {
+		doc.Projects = []edgeProject{}
+	}
+	return doc, nil
+}
+
+func flattenEdgeDoc(doc edgeDoc) []EdgeRuleSpec {
+	var out []EdgeRuleSpec
+	for _, p := range doc.Projects {
+		for _, r := range p.Rules {
+			r.Project = p.ID
+			out = append(out, r)
+		}
+	}
+	if out == nil {
+		out = []EdgeRuleSpec{}
+	}
+	return out
+}
+
+func (s *Store) saveEdgeDoc(doc edgeDoc) error {
+	if doc.Projects == nil {
+		doc.Projects = []edgeProject{}
+	}
+	raw, err := json.Marshal(doc)
 	if err != nil {
 		return err
 	}
@@ -489,10 +603,5 @@ func (s *Store) SetEdgeRules(rules []EdgeRuleSpec) error {
 		 ON CONFLICT(id) DO UPDATE SET spec_json = excluded.spec_json, updated_at = excluded.updated_at`,
 		string(raw), now,
 	)
-	return err
-}
-
-func (s *Store) ClearEdgeRules() error {
-	_, err := s.db.Exec(`DELETE FROM edge_rules WHERE id = 1`)
 	return err
 }
