@@ -25,6 +25,7 @@ func cmdDeploy(args []string) error {
 	stackID := fs.String("stack", "", "stack pack id (overrides detection)")
 	secEnv := fs.String("env", "", "secret env bag for ${secret:…} resolution (not CLI context)")
 	injectEnv := fs.Bool("inject-env", false, "inject all keys from the secret env bag into container env (manifest keys win)")
+	draft := fs.Bool("draft", false, "deploy litefaas-<name>-draft only on /--draft/ (does not replace prod; default secret bag is draft)")
 	rest, err := parseMixed(fs, args)
 	if err != nil {
 		return err
@@ -46,7 +47,7 @@ func cmdDeploy(args []string) error {
 		for i := range res.Multi.Services {
 			svc := res.Multi.Services[i].Resource()
 			svc.Release = release.Commands(res.Multi.Services[i].Release, packReleaseList(res.Multi.Services[i].Stack, nil))
-			if err := deployResource(c, svc, res.Multi.Services[i].Stack, *secEnv, *injectEnv); err != nil {
+			if err := deployResource(c, svc, res.Multi.Services[i].Stack, *secEnv, *injectEnv, *draft); err != nil {
 				return err
 			}
 			n++
@@ -72,13 +73,35 @@ func cmdDeploy(args []string) error {
 		packRelease = res.Pack.Release
 	}
 	svc.Release = release.Commands(res.Manifest.Release, packRelease)
-	if err := deployResource(c, svc, packID, *secEnv, *injectEnv); err != nil {
+	if err := deployResource(c, svc, packID, *secEnv, *injectEnv, *draft); err != nil {
 		return err
 	}
 	return applyProjectEdgeRules(c, dir)
 }
 
-func deployResource(c *client.Client, res types.Resource, packID, secEnv string, inject bool) error {
+func deployResource(c *client.Client, res types.Resource, packID, secEnv string, inject bool, draft bool) error {
+	if draft {
+		if _, err := c.Get(res.Name); err != nil {
+			if _, cerr := c.Create(res); cerr != nil && !client.IsConflict(cerr) {
+				return cerr
+			}
+		}
+		if secEnv == "" {
+			secEnv = "draft"
+		}
+		snap := revisionSnapshot(res, packID)
+		run := res
+		dep, err := c.DeployWith(res.Name, client.DeployOptions{
+			Image: res.Image, Env: secEnv, Inject: inject, Draft: true, Snapshot: &snap, Run: &run,
+		})
+		if err != nil {
+			return err
+		}
+		fmt.Printf("draft %s container %s (prod container not replaced; ~2x memory while both run)\n", res.Name, dep.Container)
+		fmt.Println("note: draft does not run release: commands and uses its own secret env bag")
+		formatDeploySummary(os.Stdout, c.Gateway, res, dep)
+		return nil
+	}
 	if _, err := c.Create(res); err != nil {
 		if !client.IsConflict(err) {
 			return err

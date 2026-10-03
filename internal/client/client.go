@@ -304,7 +304,10 @@ type DeployOptions struct {
 	Image    string
 	Env      string
 	Inject   bool
+	Draft    bool
 	Snapshot *types.RevisionSnapshot
+	// Run is applied only for draft deploys (not persisted as the prod spec).
+	Run *types.Resource
 }
 
 func (c *Client) DeployEnvInject(name, image, env string, inject bool) (DeployResult, error) {
@@ -320,7 +323,33 @@ func (c *Client) DeployWith(name string, opt DeployOptions) (DeployResult, error
 	if opt.Snapshot != nil {
 		body["snapshot"] = *opt.Snapshot
 	}
-	path := "/v1/functions/" + name + "/deploy" + deployQuery(opt.Env, opt.Inject)
+	if opt.Draft && opt.Run != nil {
+		if opt.Run.Env != nil {
+			body["env"] = opt.Run.Env
+		}
+		if opt.Run.Memory > 0 {
+			body["memory"] = opt.Run.Memory
+		}
+		if opt.Run.Port > 0 {
+			body["port"] = opt.Run.Port
+		}
+		if opt.Run.Health != "" {
+			body["health"] = opt.Run.Health
+		}
+		if opt.Run.Volumes != nil {
+			body["volumes"] = opt.Run.Volumes
+		}
+	}
+	q := deployQuery(opt.Env, opt.Inject)
+	if opt.Draft {
+		if q == "" {
+			q = "?"
+		} else {
+			q += "&"
+		}
+		q += "draft=1"
+	}
+	path := "/v1/functions/" + name + "/deploy" + q
 	if err := c.do(http.MethodPost, path, body, &out); err != nil {
 		return DeployResult{}, err
 	}

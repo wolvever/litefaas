@@ -22,6 +22,7 @@ func (s *Server) recordRevision(name, image, imageID, status string, snap types.
 		Image:    image,
 		ImageID:  imageID,
 		Status:   status,
+		Target:   "prod",
 		Snapshot: snap,
 	})
 	if err != nil {
@@ -161,6 +162,9 @@ func selectRollbackRevision(revs []types.Revision, currentImage string, id int64
 			if rev.ID != id {
 				continue
 			}
+			if rev.Target != "" && rev.Target != "prod" {
+				return types.Revision{}, fmt.Errorf("revision %d is a %s slot, not a prod rollback target", id, rev.Target)
+			}
 			if !rollbackable(rev.Status) {
 				return types.Revision{}, fmt.Errorf("revision %d status %q cannot be rolled back", id, rev.Status)
 			}
@@ -173,6 +177,9 @@ func selectRollbackRevision(revs []types.Revision, currentImage string, id int64
 	}
 	var ok []types.Revision
 	for _, rev := range revs {
+		if rev.Target != "" && rev.Target != "prod" {
+			continue
+		}
 		if rollbackable(rev.Status) && rev.Image != "" {
 			ok = append(ok, rev)
 		}

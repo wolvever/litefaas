@@ -52,6 +52,13 @@ type Runner interface {
 	Logs(ctx context.Context, name string, opts LogsOptions, w io.Writer) error
 }
 
+// DraftRunner serves a second container for /--draft/<name>/ without touching prod.
+type DraftRunner interface {
+	DeployDraft(ctx context.Context, res types.Resource) (Result, error)
+	EndpointDraft(ctx context.Context, name string) (string, error)
+	RemoveDraft(ctx context.Context, name string) error
+}
+
 // Docker is a single-node runner that shells out to the docker CLI.
 type Docker struct {
 	HTTP *http.Client
@@ -66,6 +73,31 @@ func ContainerName(name string) string { return containerPrefix + name }
 func candidateName(name string) string { return containerPrefix + name + "-new" }
 
 func (d *Docker) Deploy(ctx context.Context, res types.Resource) (Result, error) {
+	return d.deployAs(ctx, res, ContainerName(res.Name), candidateName(res.Name), "prod", true)
+}
+
+// DraftContainerName is the stable draft container (never the prod name).
+func DraftContainerName(name string) string { return containerPrefix + name + "-draft" }
+
+func draftCandidateName(name string) string { return containerPrefix + name + "-draft-new" }
+
+// DeployDraft health-cuts over litefaas-<name>-draft only. It does not remove prod
+// and does not run release commands.
+func (d *Docker) DeployDraft(ctx context.Context, res types.Resource) (Result, error) {
+	res.Release = nil
+	return d.deployAs(ctx, res, DraftContainerName(res.Name), draftCandidateName(res.Name), "draft", false)
+}
+
+func (d *Docker) EndpointDraft(ctx context.Context, name string) (string, error) {
+	return d.endpointOf(ctx, DraftContainerName(name))
+}
+
+func (d *Docker) RemoveDraft(ctx context.Context, name string) error {
+	_ = d.rmContainer(ctx, draftCandidateName(name))
+	return d.rmContainer(ctx, DraftContainerName(name))
+}
+
+func (d *Docker) deployAs(ctx context.Context, res types.Resource, stable, cand, role string, runRelease bool) (Result, error) {
 	if err := dockercli.Available(ctx); err != nil {
 		return Result{}, err
 	}
@@ -80,15 +112,13 @@ func (d *Docker) Deploy(ctx context.Context, res types.Resource) (Result, error)
 	if mem <= 0 {
 		mem = defaultMemory
 	}
-	stable := ContainerName(res.Name)
-	cand := candidateName(res.Name)
 	_ = d.rmContainer(ctx, cand)
 	if err := d.ensureVolumes(ctx, res); err != nil {
 		return Result{}, err
 	}
 	// Release runs before the candidate container so a failure leaves the live version up
 	// and does not hold the volume lock. Rollbacks pass an empty Release list.
-	if len(res.Release) > 0 {
+	if runRelease && len(res.Release) > 0 {
 		if err := release.Run(ctx, res); err != nil {
 			return Result{}, err
 		}
@@ -105,6 +135,7 @@ func (d *Docker) Deploy(ctx context.Context, res types.Resource) (Result, error)
 		"--label", "litefaas.managed=1",
 		"--label", "litefaas.name=" + res.Name,
 		"--label", "litefaas.kind=" + string(res.Kind),
+		"--label", "litefaas.role=" + role,
 		"--add-host", "host.docker.internal:host-gateway",
 		"--memory", memFlag,
 		"--memory-swap", memFlag,
@@ -344,3 +375,7 @@ func isMissingContainer(err error) bool {
 	msg := strings.ToLower(err.Error())
 	return strings.Contains(msg, "no such container") || strings.Contains(msg, "not found")
 }
+
+var (
+	_ DraftRunner = (*Docker)(nil)
+)

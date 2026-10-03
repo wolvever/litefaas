@@ -296,6 +296,9 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 			writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
 			return
 		}
+		if dr, ok := s.runner.(runner.DraftRunner); ok {
+			_ = dr.RemoveDraft(r.Context(), name)
+		}
 	}
 	err := s.store.Delete(name)
 	if errors.Is(err, store.ErrNotFound) {
@@ -312,6 +315,13 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 type deployRequest struct {
 	Image    string                 `json:"image"`
 	Snapshot types.RevisionSnapshot `json:"snapshot"`
+	// Env, memory, port, health, and volumes override the run spec for draft
+	// deploys only. They are not written back onto the prod resource.
+	Env     map[string]string   `json:"env,omitempty"`
+	Memory  int                 `json:"memory,omitempty"`
+	Port    int                 `json:"port,omitempty"`
+	Health  string              `json:"health,omitempty"`
+	Volumes []types.VolumeMount `json:"volumes,omitempty"`
 }
 
 type deployResponse struct {
@@ -348,6 +358,10 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	if res.Image == "" {
 		writeJSON(w, http.StatusBadRequest, errorBody{Error: "image is required"})
+		return
+	}
+	if queryBool(r, "draft") {
+		s.deployDraft(w, r, res, req)
 		return
 	}
 	if _, err := s.store.Update(res); err != nil {
@@ -632,15 +646,23 @@ func (s *Server) handleDraftEdge(w http.ResponseWriter, r *http.Request, name st
 	if s.store == nil {
 		return false
 	}
-	res, err := s.store.Get(name)
-	if errors.Is(err, store.ErrNotFound) {
+	if _, err := s.store.Get(name); errors.Is(err, store.ErrNotFound) {
 		http.NotFound(w, r)
 		return true
 	} else if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
 		return true
 	}
-	ep, err := s.ensureEndpoint(r.Context(), res)
+	dr, ok := s.runner.(runner.DraftRunner)
+	if !ok {
+		writeJSON(w, http.StatusNotFound, errorBody{Error: "draft not deployed"})
+		return true
+	}
+	ep, err := dr.EndpointDraft(r.Context(), name)
+	if errors.Is(err, runner.ErrNotDeployed) {
+		writeJSON(w, http.StatusNotFound, errorBody{Error: "draft not deployed"})
+		return true
+	}
 	if err != nil {
 		writeJSON(w, http.StatusBadGateway, errorBody{Error: err.Error()})
 		return true

@@ -98,6 +98,7 @@ CREATE TABLE IF NOT EXISTS edge_rules (
 		`ALTER TABLE revisions ADD COLUMN image_id TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE revisions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE revisions ADD COLUMN snapshot_json TEXT NOT NULL DEFAULT '{}'`,
+		`ALTER TABLE revisions ADD COLUMN target TEXT NOT NULL DEFAULT 'prod'`,
 	} {
 		if err := ignoreDupColumn(s.db.Exec(stmt)); err != nil {
 			return err
@@ -238,6 +239,9 @@ func (s *Store) AddRevisionFull(rev types.Revision) (types.Revision, error) {
 	if rev.Status == "" {
 		rev.Status = "deployed"
 	}
+	if rev.Target == "" {
+		rev.Target = "prod"
+	}
 	now := time.Now().UTC().Truncate(time.Second)
 	rev.CreatedAt = now
 	pin := 0
@@ -245,8 +249,8 @@ func (s *Store) AddRevisionFull(rev types.Revision) (types.Revision, error) {
 		pin = 1
 	}
 	res, err := s.db.Exec(
-		`INSERT INTO revisions (name, image, status, created_at, image_id, pinned, snapshot_json) VALUES (?, ?, ?, ?, ?, ?, ?)`,
-		rev.Name, rev.Image, rev.Status, now.Format(time.RFC3339), rev.ImageID, pin, string(raw),
+		`INSERT INTO revisions (name, image, status, created_at, image_id, pinned, snapshot_json, target) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+		rev.Name, rev.Image, rev.Status, now.Format(time.RFC3339), rev.ImageID, pin, string(raw), rev.Target,
 	)
 	if err != nil {
 		return types.Revision{}, err
@@ -261,7 +265,7 @@ func (s *Store) AddRevisionFull(rev types.Revision) (types.Revision, error) {
 
 func (s *Store) ListRevisions(name string) ([]types.Revision, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, image, status, created_at, image_id, pinned, snapshot_json FROM revisions WHERE name = ? ORDER BY id`,
+		`SELECT id, name, image, status, created_at, image_id, pinned, snapshot_json, target FROM revisions WHERE name = ? ORDER BY id`,
 		name,
 	)
 	if err != nil {
@@ -286,8 +290,11 @@ func scanRevision(rows *sql.Rows) (types.Revision, error) {
 	var rev types.Revision
 	var ts, snap string
 	var pin int
-	if err := rows.Scan(&rev.ID, &rev.Name, &rev.Image, &rev.Status, &ts, &rev.ImageID, &pin, &snap); err != nil {
+	if err := rows.Scan(&rev.ID, &rev.Name, &rev.Image, &rev.Status, &ts, &rev.ImageID, &pin, &snap, &rev.Target); err != nil {
 		return types.Revision{}, err
+	}
+	if rev.Target == "" {
+		rev.Target = "prod"
 	}
 	rev.Pinned = pin != 0
 	rev.CreatedAt, _ = time.Parse(time.RFC3339, ts)
@@ -300,7 +307,7 @@ func scanRevision(rows *sql.Rows) (types.Revision, error) {
 
 func (s *Store) GetRevision(name string, id int64) (types.Revision, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, image, status, created_at, image_id, pinned, snapshot_json FROM revisions WHERE name = ? AND id = ?`,
+		`SELECT id, name, image, status, created_at, image_id, pinned, snapshot_json, target FROM revisions WHERE name = ? AND id = ?`,
 		name, id,
 	)
 	if err != nil {
@@ -349,25 +356,34 @@ func (s *Store) PruneRevisions(name string, keep int) (int, error) {
 	if len(revs) <= keep {
 		return 0, nil
 	}
-	newest := revs[len(revs)-1].ID
-	excess := len(revs) - keep
-	var doomed []int64
+	groups := map[string][]types.Revision{}
 	for _, r := range revs {
-		if excess <= 0 {
-			break
+		t := r.Target
+		if t == "" {
+			t = "prod"
 		}
-		if r.Pinned || r.ID == newest {
-			continue
-		}
-		doomed = append(doomed, r.ID)
-		excess--
+		groups[t] = append(groups[t], r)
 	}
 	n := 0
-	for _, id := range doomed {
-		if _, err := s.db.Exec(`DELETE FROM revisions WHERE name = ? AND id = ?`, name, id); err != nil {
-			return n, err
+	for _, group := range groups {
+		if len(group) <= keep {
+			continue
 		}
-		n++
+		newest := group[len(group)-1].ID
+		excess := len(group) - keep
+		for _, r := range group {
+			if excess <= 0 {
+				break
+			}
+			if r.Pinned || r.ID == newest {
+				continue
+			}
+			if _, err := s.db.Exec(`DELETE FROM revisions WHERE name = ? AND id = ?`, name, r.ID); err != nil {
+				return n, err
+			}
+			n++
+			excess--
+		}
 	}
 	return n, nil
 }
