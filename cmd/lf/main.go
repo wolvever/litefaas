@@ -41,6 +41,8 @@ func run(args []string) error {
 		return cmdInit(args[1:])
 	case "detect":
 		return cmdDetect(args[1:])
+	case "config":
+		return cmdConfig(args[1:])
 	case "build":
 		return cmdBuild(args[1:])
 	case "deploy":
@@ -90,7 +92,8 @@ Usage:
   lf up [flags]               Start or reuse local litefaasd; set default context (--check runs preflight first)
   lf health                  GET /healthz on the current gateway
   lf init <name> --runtime go|java|python|node|dockerfile|static [--preset ...] [--kind function|backend|frontend]
-  lf detect [path] [--stack ID] [--json]  Print stack/pack plan without building
+  lf detect [path] [--stack ID] [--json]  Print stack/pack plan without building (warns on unknown keys)
+  lf config validate [path]  Validate litefaas.yaml / stack.yaml against the JSON Schema
   lf build [path] [--stack ID] [--plan] [--json] [--force]  docker build (stack.yaml skips unchanged services)
   lf deploy [path] [--stack ID] [--env NAME] [--inject-env] [--draft]  Register + deploy (optional release:; --draft does not replace prod)
   lf revisions [name|path]   List deploy revisions (image id, pack, env refs are server-side)

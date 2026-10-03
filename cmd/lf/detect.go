@@ -25,6 +25,7 @@ func cmdDetect(args []string) error {
 }
 
 func printPlan(dir, stackID string, asJSON bool) error {
+	printSchemaWarnings(dir)
 	plan, err := manifest.PlanDetect(dir, stackID)
 	if err != nil {
 		return err
