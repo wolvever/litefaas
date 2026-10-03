@@ -87,6 +87,10 @@ func (s *Server) routes() {
 	s.mux.HandleFunc("PUT /v1/functions/{name}", s.auth(s.handleUpdate))
 	s.mux.HandleFunc("DELETE /v1/functions/{name}", s.auth(s.handleDelete))
 	s.mux.HandleFunc("POST /v1/functions/{name}/deploy", s.auth(s.handleDeploy))
+	s.mux.HandleFunc("GET /v1/functions/{name}/revisions", s.auth(s.handleListRevisions))
+	s.mux.HandleFunc("POST /v1/functions/{name}/revisions/{id}/pin", s.auth(s.handlePinRevision))
+	s.mux.HandleFunc("DELETE /v1/functions/{name}/revisions/{id}/pin", s.auth(s.handleUnpinRevision))
+	s.mux.HandleFunc("POST /v1/functions/{name}/rollback", s.auth(s.handleRollback))
 	s.mux.HandleFunc("POST /v1/invoke/{name}", s.auth(s.handleInvoke))
 	s.mux.HandleFunc("GET /v1/metrics", s.auth(s.handleMetrics))
 	s.mux.HandleFunc("GET /v1/routes", s.auth(s.handleRoutes))
@@ -306,7 +310,8 @@ func (s *Server) handleDelete(w http.ResponseWriter, r *http.Request) {
 }
 
 type deployRequest struct {
-	Image string `json:"image"`
+	Image    string                 `json:"image"`
+	Snapshot types.RevisionSnapshot `json:"snapshot"`
 }
 
 type deployResponse struct {
@@ -358,11 +363,14 @@ func (s *Server) handleDeploy(w http.ResponseWriter, r *http.Request) {
 	}
 	out, err := s.runner.Deploy(r.Context(), deployRes)
 	if err != nil {
-		_, _ = s.store.AddRevision(name, res.Image, "failed")
+		_, _ = s.store.AddRevisionFull(types.Revision{
+			Name: name, Image: res.Image, Status: "failed", Snapshot: req.Snapshot,
+		})
+		_, _ = s.store.PruneRevisions(name, store.DefaultRevisionKeep)
 		writeJSON(w, http.StatusBadGateway, errorBody{Error: "deploy: " + err.Error()})
 		return
 	}
-	rev, err := s.store.AddRevision(name, res.Image, "deployed")
+	rev, err := s.recordRevision(name, res.Image, out.ImageID, "deployed", req.Snapshot)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, errorBody{Error: err.Error()})
 		return
@@ -862,7 +870,6 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(v)
 }
-
 
 // headerInjectWriter adds edge header rules when the backend response is written.
 type headerInjectWriter struct {

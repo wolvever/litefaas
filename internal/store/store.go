@@ -58,6 +58,10 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// DefaultRevisionKeep is how many revision rows to retain per resource.
+// Pinned rows and the newest row are exempt.
+const DefaultRevisionKeep = 5
+
 func (s *Store) migrate() error {
 	_, err := s.db.Exec(`
 CREATE TABLE IF NOT EXISTS resources (
@@ -87,6 +91,29 @@ CREATE TABLE IF NOT EXISTS edge_rules (
 	updated_at TEXT NOT NULL
 );
 `)
+	if err != nil {
+		return err
+	}
+	for _, stmt := range []string{
+		`ALTER TABLE revisions ADD COLUMN image_id TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE revisions ADD COLUMN pinned INTEGER NOT NULL DEFAULT 0`,
+		`ALTER TABLE revisions ADD COLUMN snapshot_json TEXT NOT NULL DEFAULT '{}'`,
+	} {
+		if err := ignoreDupColumn(s.db.Exec(stmt)); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ignoreDupColumn(res sql.Result, err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := strings.ToLower(err.Error())
+	if strings.Contains(msg, "duplicate column") {
+		return nil
+	}
 	return err
 }
 
@@ -196,13 +223,30 @@ func (s *Store) Delete(name string) error {
 }
 
 func (s *Store) AddRevision(name, image, status string) (types.Revision, error) {
-	if _, err := s.Get(name); err != nil {
+	return s.AddRevisionFull(types.Revision{Name: name, Image: image, Status: status})
+}
+
+func (s *Store) AddRevisionFull(rev types.Revision) (types.Revision, error) {
+	if _, err := s.Get(rev.Name); err != nil {
 		return types.Revision{}, err
 	}
+	rev.Snapshot = types.SanitizeSnapshot(rev.Snapshot)
+	raw, err := json.Marshal(rev.Snapshot)
+	if err != nil {
+		return types.Revision{}, err
+	}
+	if rev.Status == "" {
+		rev.Status = "deployed"
+	}
 	now := time.Now().UTC().Truncate(time.Second)
+	rev.CreatedAt = now
+	pin := 0
+	if rev.Pinned {
+		pin = 1
+	}
 	res, err := s.db.Exec(
-		`INSERT INTO revisions (name, image, status, created_at) VALUES (?, ?, ?, ?)`,
-		name, image, status, now.Format(time.RFC3339),
+		`INSERT INTO revisions (name, image, status, created_at, image_id, pinned, snapshot_json) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+		rev.Name, rev.Image, rev.Status, now.Format(time.RFC3339), rev.ImageID, pin, string(raw),
 	)
 	if err != nil {
 		return types.Revision{}, err
@@ -211,12 +255,13 @@ func (s *Store) AddRevision(name, image, status string) (types.Revision, error) 
 	if err != nil {
 		return types.Revision{}, err
 	}
-	return types.Revision{ID: id, Name: name, Image: image, Status: status, CreatedAt: now}, nil
+	rev.ID = id
+	return rev, nil
 }
 
 func (s *Store) ListRevisions(name string) ([]types.Revision, error) {
 	rows, err := s.db.Query(
-		`SELECT id, name, image, status, created_at FROM revisions WHERE name = ? ORDER BY id`,
+		`SELECT id, name, image, status, created_at, image_id, pinned, snapshot_json FROM revisions WHERE name = ? ORDER BY id`,
 		name,
 	)
 	if err != nil {
@@ -225,18 +270,106 @@ func (s *Store) ListRevisions(name string) ([]types.Revision, error) {
 	defer rows.Close()
 	var out []types.Revision
 	for rows.Next() {
-		var rev types.Revision
-		var ts string
-		if err := rows.Scan(&rev.ID, &rev.Name, &rev.Image, &rev.Status, &ts); err != nil {
+		rev, err := scanRevision(rows)
+		if err != nil {
 			return nil, err
 		}
-		rev.CreatedAt, _ = time.Parse(time.RFC3339, ts)
 		out = append(out, rev)
 	}
 	if out == nil {
 		out = []types.Revision{}
 	}
 	return out, rows.Err()
+}
+
+func scanRevision(rows *sql.Rows) (types.Revision, error) {
+	var rev types.Revision
+	var ts, snap string
+	var pin int
+	if err := rows.Scan(&rev.ID, &rev.Name, &rev.Image, &rev.Status, &ts, &rev.ImageID, &pin, &snap); err != nil {
+		return types.Revision{}, err
+	}
+	rev.Pinned = pin != 0
+	rev.CreatedAt, _ = time.Parse(time.RFC3339, ts)
+	if snap != "" && snap != "{}" {
+		_ = json.Unmarshal([]byte(snap), &rev.Snapshot)
+	}
+	rev.Snapshot = types.SanitizeSnapshot(rev.Snapshot)
+	return rev, nil
+}
+
+func (s *Store) GetRevision(name string, id int64) (types.Revision, error) {
+	rows, err := s.db.Query(
+		`SELECT id, name, image, status, created_at, image_id, pinned, snapshot_json FROM revisions WHERE name = ? AND id = ?`,
+		name, id,
+	)
+	if err != nil {
+		return types.Revision{}, err
+	}
+	defer rows.Close()
+	if !rows.Next() {
+		if err := rows.Err(); err != nil {
+			return types.Revision{}, err
+		}
+		return types.Revision{}, ErrNotFound
+	}
+	return scanRevision(rows)
+}
+
+func (s *Store) SetRevisionPinned(name string, id int64, pinned bool) (types.Revision, error) {
+	pin := 0
+	if pinned {
+		pin = 1
+	}
+	res, err := s.db.Exec(`UPDATE revisions SET pinned = ? WHERE name = ? AND id = ?`, pin, name, id)
+	if err != nil {
+		return types.Revision{}, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return types.Revision{}, err
+	}
+	if n == 0 {
+		return types.Revision{}, ErrNotFound
+	}
+	return s.GetRevision(name, id)
+}
+
+// PruneRevisions deletes oldest unpinned revisions until len<=keep.
+// The newest revision is never deleted. Pinned revisions are exempt, so the
+// retained count can exceed keep.
+func (s *Store) PruneRevisions(name string, keep int) (int, error) {
+	if keep < 1 {
+		keep = DefaultRevisionKeep
+	}
+	revs, err := s.ListRevisions(name)
+	if err != nil {
+		return 0, err
+	}
+	if len(revs) <= keep {
+		return 0, nil
+	}
+	newest := revs[len(revs)-1].ID
+	excess := len(revs) - keep
+	var doomed []int64
+	for _, r := range revs {
+		if excess <= 0 {
+			break
+		}
+		if r.Pinned || r.ID == newest {
+			continue
+		}
+		doomed = append(doomed, r.ID)
+		excess--
+	}
+	n := 0
+	for _, id := range doomed {
+		if _, err := s.db.Exec(`DELETE FROM revisions WHERE name = ? AND id = ?`, name, id); err != nil {
+			return n, err
+		}
+		n++
+	}
+	return n, nil
 }
 
 // RouteSpec is a persisted edge binding (endpoint is filled at serve time).

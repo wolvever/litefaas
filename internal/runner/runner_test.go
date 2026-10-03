@@ -53,6 +53,8 @@ func TestDockerDeployHealthGatedCutover(t *testing.T) {
 			return "abc123", nil
 		case "port":
 			return "8080/tcp -> 127.0.0.1:" + hostPort, nil
+		case "image":
+			return "sha256:abc", nil
 		default:
 			t.Fatalf("unexpected %v", args)
 		}
@@ -69,7 +71,7 @@ func TestDockerDeployHealthGatedCutover(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Container != "litefaas-hello" || res.Endpoint != health.URL {
+	if res.Container != "litefaas-hello" || res.Endpoint != health.URL || res.ImageID != "sha256:abc" {
 		t.Fatalf("result = %+v", res)
 	}
 	var run []string
@@ -174,6 +176,8 @@ func TestDockerFunctionRestartAndLogs(t *testing.T) {
 			return "id", nil
 		case "port":
 			return "8080/tcp -> 127.0.0.1:" + hostPort, nil
+		case "image":
+			return "sha256:fn", nil
 		default:
 			t.Fatalf("unexpected %v", args)
 		}

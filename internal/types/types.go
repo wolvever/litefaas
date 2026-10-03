@@ -117,12 +117,37 @@ type VolumeMount struct {
 }
 
 // Revision is a recorded deploy of an image (runner may still be a stub).
+// Snapshot holds pack/plan and env refs only — never secret values.
 type Revision struct {
-	ID        int64     `json:"id"`
-	Name      string    `json:"name"`
-	Image     string    `json:"image"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
+	ID        int64            `json:"id"`
+	Name      string           `json:"name"`
+	Image     string           `json:"image"`
+	ImageID   string           `json:"image_id,omitempty"`
+	Status    string           `json:"status"`
+	Pinned    bool             `json:"pinned,omitempty"`
+	Snapshot  RevisionSnapshot `json:"snapshot,omitempty"`
+	CreatedAt time.Time        `json:"created_at"`
+}
+
+// SnapshotEnvRef is an env key plus, when applicable, the unresolved ${secret:…}
+// expression. Plaintext values are never stored.
+type SnapshotEnvRef struct {
+	Key string `json:"key"`
+	Ref string `json:"ref,omitempty"`
+}
+
+// RevisionSnapshot is non-secret metadata captured at deploy time.
+type RevisionSnapshot struct {
+	PackID  string           `json:"pack_id,omitempty"`
+	Runtime string           `json:"runtime,omitempty"`
+	Kind    string           `json:"kind,omitempty"`
+	Port    int              `json:"port,omitempty"`
+	Health  string           `json:"health,omitempty"`
+	Handler string           `json:"handler,omitempty"`
+	Memory  int              `json:"memory,omitempty"`
+	Image   string           `json:"image,omitempty"`
+	EnvRefs []SnapshotEnvRef `json:"env_refs,omitempty"`
+	Volumes []VolumeMount    `json:"volumes,omitempty"`
 }
 
 // ResourceView is a resource plus its deploy revisions.
