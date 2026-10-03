@@ -128,6 +128,7 @@ type Revision struct {
 	ImageID   string           `json:"image_id,omitempty"`
 	Status    string           `json:"status"`
 	Pinned    bool             `json:"pinned,omitempty"`
+	Target    string           `json:"target,omitempty"` // prod (default) or draft
 	Snapshot  RevisionSnapshot `json:"snapshot,omitempty"`
 	CreatedAt time.Time        `json:"created_at"`
 }

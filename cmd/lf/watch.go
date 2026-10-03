@@ -268,7 +268,7 @@ func runBuildDeploy(ctx context.Context, dir, stackID string, c *client.Client, 
 			}
 			svc := resolved.Multi.Services[i].Resource()
 			svc.Release = release.Commands(resolved.Multi.Services[i].Release, packReleaseList(resolved.Multi.Services[i].Stack, nil))
-			if err := deployResource(c, svc, resolved.Multi.Services[i].Stack, "", false); err != nil {
+			if err := deployResource(c, svc, resolved.Multi.Services[i].Stack, "", false, false); err != nil {
 				return err
 			}
 			n++
@@ -298,7 +298,7 @@ func runBuildDeploy(ctx context.Context, dir, stackID string, c *client.Client, 
 		packRelease = resolved.Pack.Release
 	}
 	svc.Release = release.Commands(resolved.Manifest.Release, packRelease)
-	return deployResource(c, svc, packID, "", false)
+	return deployResource(c, svc, packID, "", false, false)
 }
 
 // shouldWatchNewDir reports whether a Create event path should get watcher.Add.

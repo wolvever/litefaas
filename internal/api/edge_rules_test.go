@@ -93,7 +93,8 @@ func TestDraftEdgeProxy(t *testing.T) {
 	}))
 	t.Cleanup(backend.Close)
 	fake := runner.NewFake()
-	fake.Endpoints["hello"] = backend.URL
+	fake.Endpoints["hello"] = "http://127.0.0.1:9"
+	fake.DraftEndpoints["hello"] = backend.URL
 	srv := New(Options{Store: st, Token: "tok", Runner: fake})
 	t.Cleanup(srv.Close)
 	body := []byte(`{"name":"hello","kind":"function","runtime":"go","image":"hello:latest"}`)

@@ -320,3 +320,51 @@ func containsArg(args []string, want string) bool {
 	}
 	return false
 }
+
+func TestDeployDraftDoesNotTouchProdName(t *testing.T) {
+	health := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(health.Close)
+	hostPort := strings.TrimPrefix(health.URL, "http://127.0.0.1:")
+	orig := dockercli.Output
+	t.Cleanup(func() { dockercli.Output = orig })
+	var cmds []string
+	dockercli.Output = func(_ context.Context, _ string, args ...string) (string, error) {
+		cmds = append(cmds, strings.Join(args, " "))
+		switch args[0] {
+		case "version", "rm":
+			return "", nil
+		case "run":
+			return "id", nil
+		case "port":
+			return "8080/tcp -> 127.0.0.1:" + hostPort, nil
+		case "rename":
+			return "", nil
+		case "image":
+			return "sha256:draft", nil
+		default:
+			t.Fatalf("unexpected %v", args)
+		}
+		return "", nil
+	}
+	res, err := NewDocker().DeployDraft(context.Background(), types.Resource{
+		Name: "hello", Kind: types.KindBackend, Image: "hello:draft", Release: []string{"echo no"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Container != "litefaas-hello-draft" {
+		t.Fatalf("container=%s", res.Container)
+	}
+	all := strings.Join(cmds, "\n")
+	if !strings.Contains(all, "rename litefaas-hello-draft-new litefaas-hello-draft") {
+		t.Fatalf("rename missing: %s", all)
+	}
+	if strings.Contains(all, "litefaas-hello-new") || strings.Contains(all, "rename litefaas-hello-draft-new litefaas-hello\n") {
+		t.Fatalf("prod name touched: %s", all)
+	}
+	if strings.Contains(all, "--rm") {
+		t.Fatalf("release ran: %s", all)
+	}
+}

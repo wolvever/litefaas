@@ -42,13 +42,17 @@ func cmdRevisions(args []string) error {
 		return err
 	}
 	tw := tabwriter.NewWriter(os.Stdout, 0, 0, 2, ' ', 0)
-	fmt.Fprintln(tw, "ID\tSTATUS\tPIN\tIMAGE\tIMAGE ID\tPACK")
+	fmt.Fprintln(tw, "ID\tSTATUS\tTARGET\tPIN\tIMAGE\tIMAGE ID\tPACK")
 	for _, rev := range revs {
 		pin := ""
 		if rev.Pinned {
 			pin = "yes"
 		}
-		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\n", rev.ID, rev.Status, pin, rev.Image, rev.ImageID, rev.Snapshot.PackID)
+		target := rev.Target
+		if target == "" {
+			target = "prod"
+		}
+		fmt.Fprintf(tw, "%d\t%s\t%s\t%s\t%s\t%s\t%s\n", rev.ID, rev.Status, target, pin, rev.Image, rev.ImageID, rev.Snapshot.PackID)
 	}
 	return tw.Flush()
 }
