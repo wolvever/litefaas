@@ -137,6 +137,8 @@ func (s *Server) handleRollback(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusBadRequest, errorBody{Error: err.Error()})
 		return
 	}
+	// Rollbacks skip release commands (they must not re-run migrations).
+	deployRes.Release = nil
 	out, err := s.runner.Deploy(r.Context(), deployRes)
 	if err != nil {
 		_, _ = s.recordRevision(name, res.Image, "", "failed", target.Snapshot)

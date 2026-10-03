@@ -94,3 +94,46 @@ func TestDeploySnapshotRollbackAndPin(t *testing.T) {
 		t.Fatalf("pinned=%+v", pinned)
 	}
 }
+
+func TestRollbackSkipsReleaseCommands(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	fake := runner.NewFake()
+	srv := New(Options{Store: st, Token: "tok", Runner: fake})
+	t.Cleanup(srv.Close)
+
+	body := []byte(`{"name":"api","kind":"backend","runtime":"go","image":"api:1","release":["echo migrate"]}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/functions", bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec := httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusCreated {
+		t.Fatalf("create=%d %s", rec.Code, rec.Body.String())
+	}
+	for _, image := range []string{"api:1", "api:2"} {
+		req = httptest.NewRequest(http.MethodPost, "/v1/functions/api/deploy", strings.NewReader(`{"image":"`+image+`"}`))
+		req.Header.Set("Authorization", "Bearer tok")
+		rec = httptest.NewRecorder()
+		srv.ServeHTTP(rec, req)
+		if rec.Code != http.StatusAccepted {
+			t.Fatalf("deploy %s = %d %s", image, rec.Code, rec.Body.String())
+		}
+	}
+	if len(fake.Deploys) < 2 || len(fake.Deploys[1].Release) != 1 || fake.Deploys[1].Release[0] != "echo migrate" {
+		t.Fatalf("deploy release = %+v", fake.Deploys)
+	}
+	req = httptest.NewRequest(http.MethodPost, "/v1/functions/api/rollback", strings.NewReader(`{}`))
+	req.Header.Set("Authorization", "Bearer tok")
+	rec = httptest.NewRecorder()
+	srv.ServeHTTP(rec, req)
+	if rec.Code != http.StatusAccepted {
+		t.Fatalf("rollback=%d %s", rec.Code, rec.Body.String())
+	}
+	last := fake.Deploys[len(fake.Deploys)-1]
+	if last.Image != "api:1" || len(last.Release) != 0 {
+		t.Fatalf("rollback ran release or wrong image: %+v", last)
+	}
+}

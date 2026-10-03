@@ -5,11 +5,14 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 
 	"github.com/wolvever/litefaas/internal/client"
 	"github.com/wolvever/litefaas/internal/manifest"
 	"github.com/wolvever/litefaas/internal/netlifycompat"
 	"github.com/wolvever/litefaas/internal/proxy"
+	"github.com/wolvever/litefaas/internal/release"
+	"github.com/wolvever/litefaas/internal/stackpack"
 	"github.com/wolvever/litefaas/internal/types"
 )
 
@@ -41,7 +44,9 @@ func cmdDeploy(args []string) error {
 	if res.Multi != nil {
 		n := 0
 		for i := range res.Multi.Services {
-			if err := deployResource(c, res.Multi.Services[i].Resource(), res.Multi.Services[i].Stack, *secEnv, *injectEnv); err != nil {
+			svc := res.Multi.Services[i].Resource()
+			svc.Release = release.Commands(res.Multi.Services[i].Release, packReleaseList(res.Multi.Services[i].Stack, nil))
+			if err := deployResource(c, svc, res.Multi.Services[i].Stack, *secEnv, *injectEnv); err != nil {
 				return err
 			}
 			n++
@@ -61,7 +66,13 @@ func cmdDeploy(args []string) error {
 	} else if res.Manifest != nil {
 		packID = res.Manifest.Stack
 	}
-	if err := deployResource(c, res.Manifest.Resource(), packID, *secEnv, *injectEnv); err != nil {
+	svc := res.Manifest.Resource()
+	var packRelease []string
+	if res.Pack != nil {
+		packRelease = res.Pack.Release
+	}
+	svc.Release = release.Commands(res.Manifest.Release, packRelease)
+	if err := deployResource(c, svc, packID, *secEnv, *injectEnv); err != nil {
 		return err
 	}
 	return applyProjectEdgeRules(c, dir)
@@ -113,4 +124,23 @@ func applyProjectEdgeRules(c *client.Client, dir string) error {
 	}
 	fmt.Printf("edge rules: %d redirect/rewrite, %d header (from _redirects / netlify.toml / vercel.json)\n", nRedir, nHdr)
 	return nil
+}
+
+func packReleaseList(id string, pack *stackpack.Pack) []string {
+	if pack != nil && (id == "" || pack.ID == id) {
+		return pack.Release
+	}
+	id = strings.TrimSpace(id)
+	if id == "" {
+		return nil
+	}
+	cat, err := stackpack.Open()
+	if err != nil {
+		return nil
+	}
+	p, err := cat.Get(id)
+	if err != nil {
+		return nil
+	}
+	return p.Release
 }

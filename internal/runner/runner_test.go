@@ -276,3 +276,47 @@ func TestRemovePruneIgnoresMissingVolume(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestReleaseFailureDoesNotCutOver(t *testing.T) {
+	orig := dockercli.Output
+	t.Cleanup(func() { dockercli.Output = orig })
+	var renamed bool
+	var startedCandidate bool
+	dockercli.Output = func(_ context.Context, _ string, args ...string) (string, error) {
+		switch args[0] {
+		case "version", "rm":
+			return "", nil
+		case "run":
+			if containsArg(args, "--rm") {
+				return "", &strErr{"exit status 1"}
+			}
+			startedCandidate = true
+			return "id", nil
+		case "rename":
+			renamed = true
+			return "", nil
+		default:
+			t.Fatalf("unexpected %v", args)
+		}
+		return "", nil
+	}
+	_, err := NewDocker().Deploy(context.Background(), types.Resource{
+		Name: "api", Kind: types.KindBackend, Image: "api:2",
+		Release: []string{"python manage.py migrate --noinput"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "live version unchanged") {
+		t.Fatalf("err=%v", err)
+	}
+	if renamed || startedCandidate {
+		t.Fatalf("cutover happened renamed=%v candidate=%v", renamed, startedCandidate)
+	}
+}
+
+func containsArg(args []string, want string) bool {
+	for _, a := range args {
+		if a == want {
+			return true
+		}
+	}
+	return false
+}
